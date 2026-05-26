@@ -198,6 +198,7 @@ pub struct ProxyConfig {
     pub connect_timeout: u64,
     pub buffering: bool,
     pub http2: bool,
+    pub allow_internal: bool,
 }
 
 // ── TLS ───────────────────────────────────────────────────────────────────────

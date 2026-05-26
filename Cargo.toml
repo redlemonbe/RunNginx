@@ -12,7 +12,7 @@ name = "runnginx"
 path = "src/main.rs"
 
 [features]
-default     = ["jemalloc"]
+default = ["jemalloc", "tls"]
 jemalloc    = ["tikv-jemallocator"]
 tls         = ["rustls", "rustls-pemfile", "tokio-rustls", "rcgen"]
 xdp         = []
@@ -62,6 +62,7 @@ hex          = "0.4"
 
 # Allocator
 tikv-jemallocator = { version = "0.6", optional = true }
+lazy_static = "1.5.0"
 
 [profile.release]
 opt-level     = 3

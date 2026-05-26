@@ -6,6 +6,8 @@ use clap::Parser;
 use tracing::info;
 
 mod api;
+mod tls;
+mod proxy;
 mod config;
 mod http;
 mod router;
@@ -33,6 +35,12 @@ struct Cli {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // Install rustls ring crypto provider (must be done before any TLS operations).
+    #[cfg(feature = "tls")]
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .ok(); // ok() — harmless if already installed
 
     tracing_subscriber::fmt()
         .with_env_filter(

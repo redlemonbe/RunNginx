@@ -816,6 +816,7 @@ dependencies = [
  "hex",
  "hmac",
  "httparse",
+ "lazy_static",
  "memchr",
  "num_cpus",
  "rcgen",

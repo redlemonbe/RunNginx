@@ -159,8 +159,20 @@ async fn dispatch(
             }
             resp
         }
-        Some(LocationHandler::Proxy(_)) => {
-            static_files::not_implemented("proxy_pass not yet implemented")
+        Some(LocationHandler::Proxy(pc)) => {
+            let prefix = match location.map(|l| &l.pattern) {
+                Some(crate::config::types::LocationPattern::Prefix(p)) => p.as_str(),
+                Some(crate::config::types::LocationPattern::PrefixNoRegex(p)) => p.as_str(),
+                _ => "",
+            };
+            crate::proxy::proxy_request(
+                pc,
+                &req.method,
+                &req.path,
+                prefix,
+                &req.headers,
+                &[],
+            ).await
         }
         Some(LocationHandler::FastCgi(_)) => {
             static_files::not_implemented("fastcgi_pass not yet implemented")

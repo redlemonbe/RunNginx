@@ -673,6 +673,14 @@ fn parse_location(tokens: &[Token], pos: &mut usize, config_path: &Path, depth: 
                     pc.buffering = v == "on";
                 }
             }
+            "proxy_allow_internal" => {
+                *pos += 1;
+                let v = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                if let LocationHandler::Proxy(ref mut pc) = handler {
+                    pc.allow_internal = v == "on";
+                }
+            }
             "add_header" => {
                 *pos += 1;
                 let name  = expect_word(tokens, pos)?;
@@ -782,39 +790,14 @@ fn parse_proxy_pass(raw: &str) -> Result<ProxyConfig> {
 
     let host = parsed.host_str().unwrap_or("");
 
-    // Block all private / reserved addresses (SSRF prevention).
+    // SSRF prevention: block cloud metadata and unambiguously unsafe endpoints.
+    // RFC-1918 / loopback are allowed with proxy_allow_internal on; (checked at request time).
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-        if ip.is_loopback() || ip.is_unspecified() {
-            bail!("proxy_pass '{}': loopback/unspecified address blocked (SSRF)", raw);
+        if ip.is_unspecified() {
+            bail!("proxy_pass '{}': unspecified address blocked (SSRF)", raw);
         }
-        match ip {
-            std::net::IpAddr::V4(v4) => {
-                if v4.is_private() || v4.is_link_local() {
-                    bail!("proxy_pass '{}': private/link-local address blocked (SSRF). Use proxy_allow_internal on;", raw);
-                }
-            }
-            std::net::IpAddr::V6(v6) => {
-                let s = v6.segments();
-                // fe80::/10 link-local
-                if s[0] & 0xffc0 == 0xfe80 {
-                    bail!("proxy_pass '{}': IPv6 link-local blocked (SSRF)", raw);
-                }
-                // fc00::/7 ULA (unique local addresses)
-                if s[0] & 0xfe00 == 0xfc00 {
-                    bail!("proxy_pass '{}': IPv6 ULA blocked (SSRF)", raw);
-                }
-                // ::ffff:0:0/96 IPv4-mapped — check the embedded IPv4 part
-                if s[0]==0 && s[1]==0 && s[2]==0 && s[3]==0 && s[4]==0 && s[5]==0xffff {
-                    let v4 = std::net::Ipv4Addr::new(
-                        (s[6] >> 8) as u8, s[6] as u8,
-                        (s[7] >> 8) as u8, s[7] as u8,
-                    );
-                    if v4.is_private() || v4.is_link_local() || v4.is_loopback() {
-                        bail!("proxy_pass '{}': IPv4-mapped private address blocked (SSRF)", raw);
-                    }
-                }
-            }
-        }
+        // Loopback and private IPs: allowed only with proxy_allow_internal on;
+        // We accept them at parse time and block at request time in proxy.rs.
     }
 
     let host_lc = host.to_ascii_lowercase();
@@ -835,6 +818,7 @@ fn parse_proxy_pass(raw: &str) -> Result<ProxyConfig> {
         connect_timeout: 5,
         buffering: true,
         http2: false,
+        allow_internal: false,
     })
 }
 
