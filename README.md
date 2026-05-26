@@ -187,3 +187,24 @@ AGPL-3.0-only — see [LICENSE](LICENSE). Commercial license available for organ
 
 *Part of the [RunSoftware](https://github.com/redlemonbe) stack — [Runbound](https://github.com/redlemonbe/Runbound) · [RunAlexDB](https://github.com/redlemonbe/RunAlexDB) · [dnsmark](https://github.com/redlemonbe/dnsmark) · [httpmark](https://github.com/redlemonbe/httpmark)*  
 Copyright (C) 2026 RedLemonBe
+
+
+## Hot backup / restore
+
+Snapshot and restore server configuration and user accounts without downtime.
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/backup` | Snapshot `runnginx.conf` + `users.toml` to `config_dir/backups/backup_<ts>[_label]/` |
+| `GET /api/backups` | List snapshots (id, timestamp, has_users) |
+| `POST /api/restore` | Restore a snapshot by id — copies config+users back and triggers a live reload |
+| `DELETE /api/backups/<id>` | Remove a snapshot |
+
+Optional `label` field for named snapshots:
+```bash
+curl -X POST http://localhost:8090/api/backup \
+  -H "Authorization: Bearer $KEY" \
+  -d '{"label":"before-upgrade"}'
+```
+
+## Firewall auto-management
