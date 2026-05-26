@@ -27,6 +27,8 @@ mod multiuser;
 mod stats;
 mod http2;
 mod ioring;
+mod icmp_guard;
+mod scan_detector;
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
@@ -142,7 +144,23 @@ async fn main() -> Result<()> {
         upstream_registry.register(group);
     }
 
+    // ICMP protection — with inter-process coordination via /var/run/icmp_guard.pid
+    let _icmp = icmp_guard::IcmpGuard::setup(cfg.icmp_protection);
+
+    // HTTP scan detector
+    let scan_detector = scan_detector::ScanDetector::new(scan_detector::ScanConfig {
+        enabled:              cfg.scan_detection,
+        window_secs:          cfg.scan_window_secs,
+        req_threshold:        cfg.scan_req_threshold,
+        error_rate_threshold: cfg.scan_error_rate,
+        block_secs:           cfg.scan_block_secs,
+        abuseipdb_key:        cfg.scan_abuseipdb_key.clone(),
+        abuseipdb_report:     cfg.scan_abuseipdb_report,
+        whitelist:            cfg.scan_whitelist.clone(),
+    });
+
     let handler_ctx = Arc::new(server::handler::HandlerContext {
+        scan_detector:     Arc::clone(&scan_detector),
         http:              Arc::clone(&http),
         logger:            Arc::clone(&logger),
         stats:             Arc::clone(&api_ctx.stats),

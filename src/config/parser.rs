@@ -148,6 +148,15 @@ fn parse_root(tokens: &[Token], pos: &mut usize, config_path: &Path, depth: usiz
         firewall_manage:  true,
         firewall_backend: None,
         firewall_tag:     "runnginx".to_owned(),
+        icmp_protection:  true,
+        scan_detection:   true,
+        scan_window_secs:     60,
+        scan_req_threshold:   100,
+        scan_error_rate:      0.60,
+        scan_block_secs:      3600,
+        scan_abuseipdb_key:   None,
+        scan_abuseipdb_report: false,
+        scan_whitelist:       Vec::new(),
     };
 
     while *pos < tokens.len() {
@@ -212,6 +221,54 @@ fn parse_root(tokens: &[Token], pos: &mut usize, config_path: &Path, depth: usiz
                 let pattern = expect_word(tokens, pos)?;
                 expect_semi(tokens, pos)?;
                 handle_include(&pattern, config_path, depth, &mut cfg)?;
+            }
+            Some("icmp_protection") | Some("icmp-protection") => {
+                *pos += 1;
+                let val = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                cfg.icmp_protection = val.trim_matches('"') != "off";
+            }
+            Some("scan_detection") | Some("scan-detection") => {
+                *pos += 1;
+                let val = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                cfg.scan_detection = val.trim_matches('"') != "off";
+            }
+            Some("scan_window") | Some("scan_detection_window") => {
+                *pos += 1;
+                let val = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                cfg.scan_window_secs = val.parse().unwrap_or(60);
+            }
+            Some("scan_threshold") | Some("scan_detection_threshold") => {
+                *pos += 1;
+                let val = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                cfg.scan_req_threshold = val.parse().unwrap_or(100);
+            }
+            Some("scan_error_rate") | Some("scan_detection_error_rate") => {
+                *pos += 1;
+                let val = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                cfg.scan_error_rate = val.parse().unwrap_or(0.60);
+            }
+            Some("scan_block") | Some("scan_detection_block") => {
+                *pos += 1;
+                let val = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                cfg.scan_block_secs = val.parse().unwrap_or(3600);
+            }
+            Some("abuseipdb_key") | Some("scan_detection_abuseipdb_key") => {
+                *pos += 1;
+                let val = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                cfg.scan_abuseipdb_key = Some(val.trim_matches('"').to_owned());
+            }
+            Some("abuseipdb_report") | Some("scan_detection_abuseipdb_report") => {
+                *pos += 1;
+                let val = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                cfg.scan_abuseipdb_report = val.trim_matches('"') != "off";
             }
             Some(unknown) => {
                 warn!("unknown root directive '{}' — skipped", unknown);

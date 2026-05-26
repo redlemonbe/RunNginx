@@ -1,5 +1,19 @@
 # Changelog — RunNginx
 
+## [0.4.0] — 2026-05-26
+
+### Added
+
+- **ICMP flood protection** (on by default): rate-limits ICMP echo-request to 5/s burst 10 via iptables/nftables. IPv4 + IPv6. Config: `icmp_protection on|off`. Mirrors Runbound's network-level protection.
+- **Inter-process coordination**: lock file `/var/run/icmp_guard.pid` ensures only one program (RunNginx, RunAlexDB, or Runbound) sets up ICMP rules at a time. Second instance detects live lock owner and skips setup automatically. On clean exit, owner releases lock and removes rules.
+- **HTTP scan/probe detection** (on by default): per-IP scoring across a 60s sliding window. Score based on request volume, 4xx error rate, and known probe paths (`.env`, `wp-login.php`, `/etc/passwd`, 30+ patterns). Score ≥ 60 → 429 block for 1h.
+- **AbuseIPDB integration** (optional): `abuseipdb_key "your-key"; abuseipdb_report on;` reports detected scanners with confidence score to AbuseIPDB v2 API (categories 14+21).
+- Config directives: `scan_window`, `scan_threshold`, `scan_error_rate`, `scan_block`, `abuseipdb_key`, `abuseipdb_report`.
+
+Closes #33
+
+---
+
 ## [0.3.0] — 2026-05-26
 
 ### Added
@@ -9,6 +23,20 @@
 - **add_headers now active**: Server-level and location-level  directives were parsed but never applied to responses — now correctly injected before .
 
 Closes #32
+
+---
+
+## [0.4.0] — 2026-05-26
+
+### Added
+
+- **ICMP flood protection** (on by default): rate-limits ICMP echo-request to 5/s burst 10 via iptables/nftables. IPv4 + IPv6. Config: `icmp_protection on|off`. Mirrors Runbound's network-level protection.
+- **Inter-process coordination**: lock file `/var/run/icmp_guard.pid` ensures only one program (RunNginx, RunAlexDB, or Runbound) sets up ICMP rules at a time. Second instance detects live lock owner and skips setup automatically. On clean exit, owner releases lock and removes rules.
+- **HTTP scan/probe detection** (on by default): per-IP scoring across a 60s sliding window. Score based on request volume, 4xx error rate, and known probe paths (`.env`, `wp-login.php`, `/etc/passwd`, 30+ patterns). Score ≥ 60 → 429 block for 1h.
+- **AbuseIPDB integration** (optional): `abuseipdb_key "your-key"; abuseipdb_report on;` reports detected scanners with confidence score to AbuseIPDB v2 API (categories 14+21).
+- Config directives: `scan_window`, `scan_threshold`, `scan_error_rate`, `scan_block`, `abuseipdb_key`, `abuseipdb_report`.
+
+Closes #33
 
 ---
 

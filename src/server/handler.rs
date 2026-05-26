@@ -29,6 +29,7 @@ struct ParsedRequest {
 // ── Public handler ────────────────────────────────────────────────────────────
 
 pub struct HandlerContext {
+    pub scan_detector: Arc<crate::scan_detector::ScanDetector>,
     pub http:    Arc<HttpBlock>,
     pub logger:  Arc<Logger>,
     pub stats:   Arc<Stats>,
@@ -69,6 +70,19 @@ async fn dispatch(
     ctx:    &Arc<HandlerContext>,
     is_tls: bool,
 ) -> HandlerResult {
+    // Scan detector — early block before any parsing
+    if ctx.scan_detector.is_blocked(peer.ip()) {
+        let body = b"Too Many Requests";
+        return HandlerResult {
+            bytes: format_response(429, &[
+                ("Content-Length".to_owned(), body.len().to_string()),
+                ("Retry-After".to_owned(), "3600".to_owned()),
+                ("Content-Type".to_owned(), "text/plain".to_owned()),
+            ], false, body),
+            keep_alive: false, status: 429, tunnel: None,
+        };
+    }
+
     // Parse request line.
     let (rl, rl_len) = match parse_request_line(raw) {
         Ok(v) => v,
@@ -542,6 +556,9 @@ async fn dispatch(
             ctx.cache.put(key, bytes.clone(), status);
         }
     }
+
+    // Scan detector recording (normal response path)
+    ctx.scan_detector.record(peer.ip(), &req.path, status);
 
     HandlerResult { bytes, keep_alive, status, tunnel: None }
 }

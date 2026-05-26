@@ -16,6 +16,15 @@ pub struct Config {
     pub firewall_manage:  bool,
     pub firewall_backend: Option<String>,
     pub firewall_tag:     String,
+    pub icmp_protection:  bool,
+    pub scan_detection:   bool,
+    pub scan_window_secs:     u64,
+    pub scan_req_threshold:   u64,
+    pub scan_error_rate:      f32,
+    pub scan_block_secs:      u64,
+    pub scan_abuseipdb_key:   Option<String>,
+    pub scan_abuseipdb_report: bool,
+    pub scan_whitelist:       Vec<std::net::IpAddr>,
 }
 
 #[derive(Debug, Clone)]
