@@ -63,7 +63,7 @@ Claude Sonnet 4.6 (2026-05-26). This audit has not been re-reviewed by a differe
 | **Source** | [AI-INTERNAL] |
 | **File** | `src/server/handler.rs:165` |
 | **Discovered** | 2026-05-26 |
-| **Status** | ⏳ Open |
+| **Status** | ✅ Fixed — v0.1.5+, commit b31d622 — closes #25 |
 
 **Threat model:** Remote attacker with many requests, local or low-latency network.
 
@@ -119,7 +119,7 @@ This creates a timing oracle: an attacker who can measure response time with suf
 | **Source** | [AI-INTERNAL] |
 | **File** | `src/server/handler.rs:152-164` |
 | **Discovered** | 2026-05-26 |
-| **Status** | ⏳ Open |
+| **Status** | ✅ Fixed — v0.1.5+, commit b31d622 — closes #26 |
 
 **Threat model:** Operations / incident response.
 
