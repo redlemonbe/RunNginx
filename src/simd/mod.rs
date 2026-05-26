@@ -224,6 +224,48 @@ fn trim_bytes(b: &[u8]) -> &[u8] {
     if start >= end { &b[0..0] } else { &b[start..end] }
 }
 
+
+// ── Percent-decode ────────────────────────────────────────────────────────────
+
+/// Decode percent-encoded bytes in a URI path.
+/// Sequences that would produce forbidden characters (%00, %2F, %5C) are left
+/// encoded and will be rejected by `is_uri_safe` afterwards.
+pub fn percent_decode(input: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(input.len());
+    let mut i = 0;
+    while i < input.len() {
+        if input[i] == b'%' && i + 2 < input.len() {
+            if let (Some(hi), Some(lo)) = (hex_nibble(input[i+1]), hex_nibble(input[i+2])) {
+                out.push((hi << 4) | lo);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(input[i]);
+        i += 1;
+    }
+    out
+}
+
+#[inline(always)]
+fn hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _            => None,
+    }
+}
+
+// ── Header name normalization ─────────────────────────────────────────────────
+
+/// Lowercase-normalize an ASCII header name in-place.
+/// Returns the input as a `Vec<u8>` with all A-Z bytes mapped to a-z.
+/// Allows the handler to use `==` instead of `eq_ignore_ascii_case`.
+pub fn normalize_header_name(name: &[u8]) -> Vec<u8> {
+    name.iter().map(|&b| b.to_ascii_lowercase()).collect()
+}
+
 // ── URI security check ────────────────────────────────────────────────────────
 
 pub fn is_uri_safe(uri: &[u8]) -> bool {
@@ -336,5 +378,45 @@ mod tests {
         buf.extend_from_slice(b"\r\n");
         assert!(parse_headers(&buf).is_err());
     }
+
+    #[test]
+    fn percent_decode_basic() {
+        assert_eq!(percent_decode(b"/my%20file.html"), b"/my file.html");
+        assert_eq!(percent_decode(b"/foo%2Bbar"), b"/foo+bar");
+        assert_eq!(percent_decode(b"/no-encoding"), b"/no-encoding");
+    }
+
+    #[test]
+    fn percent_decode_uppercase_hex() {
+        assert_eq!(percent_decode(b"/%41%42%43"), b"/ABC");
+    }
+
+    #[test]
+    fn percent_decode_incomplete_sequence_passthrough() {
+        // Incomplete or invalid sequences are passed through unchanged.
+        assert_eq!(percent_decode(b"/%2"), b"/%2");
+        assert_eq!(percent_decode(b"/%zz"), b"/%zz");
+    }
+
+    #[test]
+    fn percent_decode_null_kept_encoded_for_safety_check() {
+        // %00 decodes to 0x00; is_uri_safe will then reject it.
+        let decoded = percent_decode(b"/foo%00bar");
+        assert_eq!(decoded, b"/foo\x00bar");
+        assert!(!is_uri_safe(&decoded));
+    }
+
+    #[test]
+    fn normalize_header_name_lowercase() {
+        assert_eq!(normalize_header_name(b"Content-Type"), b"content-type");
+        assert_eq!(normalize_header_name(b"HOST"), b"host");
+        assert_eq!(normalize_header_name(b"x-custom-header"), b"x-custom-header");
+    }
+
+    #[test]
+    fn normalize_header_name_already_lower() {
+        assert_eq!(normalize_header_name(b"host"), b"host");
+    }
+
 }
 
