@@ -513,6 +513,9 @@ fn parse_server_block(tokens: &[Token], pos: &mut usize, config_path: &Path, dep
         limit_req: None,
         rewrites: Vec::new(),
         auth_basic: None,
+        ssl_redirect: false,
+        hsts_max_age: None,
+        hsts_include_subdomains: true,
     };
     let mut loc_count = 0usize;
 
@@ -670,6 +673,32 @@ fn parse_server_block(tokens: &[Token], pos: &mut usize, config_path: &Path, dep
                 let loc = parse_location(tokens, pos, config_path, depth)?;
                 srv.locations.push(loc);
                 loc_count += 1;
+            }
+            "ssl_redirect" | "ssl-redirect" => {
+                *pos += 1;
+                let val = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                srv.ssl_redirect = val.trim_matches('"') != "off";
+            }
+            "hsts" => {
+                *pos += 1;
+                let val = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                if val.trim_matches('"') != "off" {
+                    srv.hsts_max_age = Some(31536000);
+                }
+            }
+            "hsts_max_age" | "hsts-max-age" => {
+                *pos += 1;
+                let val = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                srv.hsts_max_age = val.parse().ok();
+            }
+            "hsts_include_subdomains" | "hsts-include-subdomains" => {
+                *pos += 1;
+                let val = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                srv.hsts_include_subdomains = val.trim_matches('"') != "off";
             }
             unknown => {
                 warn!("unknown server directive '{}' — skipped", unknown);

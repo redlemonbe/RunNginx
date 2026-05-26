@@ -85,6 +85,11 @@ pub struct ServerBlock {
     pub limit_req: Option<LimitReqRef>,
     pub rewrites:   Vec<RewriteRule>,
     pub auth_basic: Option<AuthBasicConfig>,
+    /// Redirect plain HTTP requests to HTTPS (301).
+    pub ssl_redirect: bool,
+    /// If Some, inject Strict-Transport-Security with this max-age on TLS responses.
+    pub hsts_max_age: Option<u64>,
+    pub hsts_include_subdomains: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -136,7 +136,7 @@ async fn handle_plain(
             Ok(Ok(n)) => n,
         };
         requests += 1;
-        let result = crate::server::handler::handle(&buf[..n], peer, Arc::clone(&ctx)).await;
+        let result = crate::server::handler::handle(&buf[..n], peer, Arc::clone(&ctx), false).await;
         let keep_alive = result.keep_alive;
         stream.write_all(&result.bytes).await?;
         stream.flush().await?;
@@ -184,7 +184,7 @@ where
             Ok(Ok(n)) => n,
         };
         requests += 1;
-        let result = crate::server::handler::handle(&buf[..n], peer, Arc::clone(&ctx)).await;
+        let result = crate::server::handler::handle(&buf[..n], peer, Arc::clone(&ctx), true).await;
         let keep_alive = result.keep_alive;
         stream.write_all(&result.bytes).await?;
         stream.flush().await?;

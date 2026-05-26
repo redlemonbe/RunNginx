@@ -42,14 +42,15 @@ pub struct HandlerContext {
 }
 
 pub async fn handle(
-    raw:  &[u8],
-    peer: SocketAddr,
-    ctx:  Arc<HandlerContext>,
+    raw:    &[u8],
+    peer:   SocketAddr,
+    ctx:    Arc<HandlerContext>,
+    is_tls: bool,
 ) -> HandlerResult {
     let t0 = Instant::now();
     ctx.stats.active.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    let result = dispatch(raw, peer, &ctx).await;
+    let result = dispatch(raw, peer, &ctx, is_tls).await;
 
     ctx.stats.active.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     ctx.stats.record_request(
@@ -63,9 +64,10 @@ pub async fn handle(
 }
 
 async fn dispatch(
-    raw:  &[u8],
-    peer: SocketAddr,
-    ctx:  &Arc<HandlerContext>,
+    raw:    &[u8],
+    peer:   SocketAddr,
+    ctx:    &Arc<HandlerContext>,
+    is_tls: bool,
 ) -> HandlerResult {
     // Parse request line.
     let (rl, rl_len) = match parse_request_line(raw) {
@@ -192,6 +194,21 @@ async fn dispatch(
         .map(|s| Arc::new(s.clone()))
         .collect();
     let server   = router::select_server(&servers_arc, &req.host);
+
+    // HTTP→HTTPS redirect
+    if server.ssl_redirect && !is_tls {
+        let host = if req.host.is_empty() { "localhost".to_owned() } else { req.host.clone() };
+        let location = format!("https://{}{}", host, req.path);
+        let r = HandlerResult {
+            bytes: format_response(301, &[
+                ("Location".to_owned(), location),
+                ("Content-Length".to_owned(), "0".to_owned()),
+            ], keep_alive, &[]),
+            keep_alive, status: 301, tunnel: None,
+        };
+        log_request(&req, &r, peer, &ctx.logger);
+        return r;
+    }
 
     // Apply server-level rewrite rules.
     let srv_rewrites = &server.rewrites;
@@ -493,6 +510,28 @@ async fn dispatch(
         referer:      get_header(&req.headers, "referer").unwrap_or("-").to_owned(),
         user_agent:   get_header(&req.headers, "user-agent").unwrap_or("-").to_owned(),
     });
+
+    // Inject server add_headers + location add_headers into hdrs
+    for (k, v) in &server.add_headers {
+        hdrs.push((k.clone(), v.clone()));
+    }
+    if let Some(loc) = location {
+        for (k, v) in &loc.add_headers {
+            hdrs.push((k.clone(), v.clone()));
+        }
+    }
+
+    // HSTS header on TLS responses
+    if is_tls {
+        if let Some(max_age) = server.hsts_max_age {
+            let hsts_val = if server.hsts_include_subdomains {
+                format!("max-age={max_age}; includeSubDomains")
+            } else {
+                format!("max-age={max_age}")
+            };
+            hdrs.push(("Strict-Transport-Security".to_owned(), hsts_val));
+        }
+    }
 
     let bytes = format_response(status, &hdrs, keep_alive, &body);
 

@@ -1,5 +1,29 @@
 # Changelog — RunNginx
 
+## [0.3.0] — 2026-05-26
+
+### Added
+
+- **ssl_redirect**: Per-server directive; when set to , plain HTTP requests receive a 301 redirect to HTTPS. Passes  flag through the request pipeline.
+- **HSTS**:  injects  on all TLS responses.  and  allow fine-grained control.
+- **add_headers now active**: Server-level and location-level  directives were parsed but never applied to responses — now correctly injected before .
+
+Closes #32
+
+---
+
+## [0.3.0] — 2026-05-26
+
+### Added
+
+- **ssl_redirect**: Per-server directive; when set to `on`, plain HTTP requests receive a 301 redirect to HTTPS. The `is_tls` flag is threaded through the request pipeline via the new `dispatch()` parameter.
+- **HSTS**: `hsts on` injects `Strict-Transport-Security: max-age=31536000; includeSubDomains` on all TLS responses. `hsts_max_age` and `hsts_include_subdomains` allow fine-grained control per server block.
+- **add_headers now active**: Server-level and location-level `add_header` directives were parsed but never applied to responses — now correctly injected before `format_response()`.
+
+Closes #32
+
+---
+
 ## [0.2.0] — 2026-05-26
 
 ### Added

@@ -95,7 +95,7 @@ mod h2_impl {
         raw.extend_from_slice(&body_bytes);
 
         // Dispatch through the existing HTTP/1.1 handler.
-        let result = crate::server::handler::handle(&raw, peer, ctx).await;
+        let result = crate::server::handler::handle(&raw, peer, ctx, true).await;
 
         // Parse HTTP/1.1 response bytes → h2 frames.
         let (status, resp_headers, body) = parse_h1_response(&result.bytes);
