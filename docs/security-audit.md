@@ -411,3 +411,156 @@ Impact: Low — attacker sees one 404, then gets blocked. No sensitive data leak
 | A | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | handler, auth, API, URI validation |
 | B | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | multiuser, TLS, auth (full), proxy, fastcgi |
 | C | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | ICMP guard, scan detector, AbuseIPDB, command injection, is_tls |
+
+
+---
+
+## Cycle D — [AI-INTERNAL] — 2026-05-26 — v0.4.0 (HTTP/2, WebSocket, Cache, ACME)
+
+**Scope:** `src/http2/mod.rs`, `src/websocket/mod.rs`, `src/cache/mod.rs`, `src/acme/mod.rs`
+**Model:** Claude Sonnet 4.6
+**Note:** v0.4.0 added HTTP/2 bridging (ALPN h2), WebSocket proxy, response cache, and ACME Let's Encrypt integration. This cycle reviews these new modules exclusively.
+
+---
+
+### RNN-2026-D-001 — MEDIUM — HTTP/2 per-stream task spawn is unbounded
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-D-001 |
+| **Severity** | MEDIUM |
+| **CWE** | CWE-400 (Uncontrolled Resource Consumption) |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/http2/mod.rs:31` |
+| **Discovered** | 2026-05-26 |
+| **Status** | ⏳ Open |
+
+**Threat model:** An HTTP/2 client that floods the server with concurrent streams.
+
+**Description:** `h2::server::serve()` spawns a new `tokio::task` for each accepted h2 stream via `tokio::spawn(handle_stream(...))` with no concurrency bound. HTTP/2 allows multiplexing hundreds of streams per connection (default `SETTINGS_MAX_CONCURRENT_STREAMS` is implementation-defined, but clients can negotiate values up to `2^31-1`). A single authenticated HTTP/2 connection can create thousands of streams simultaneously, spawning thousands of tasks. Each task allocates a body buffer and a synthetic HTTP/1.1 request. Under load, this exhausts memory or scheduler capacity.
+
+**Fix:** Use `tokio::sync::Semaphore` to cap concurrent in-flight h2 stream tasks (e.g., `max_concurrent_streams = 256`). Additionally, advertise a conservative `SETTINGS_MAX_CONCURRENT_STREAMS` value to the client to let the h2 crate enforce it at the protocol level:
+```
+conn.set_max_concurrent_streams(Some(256));
+```
+
+---
+
+### RNN-2026-D-002 — MEDIUM — WebSocket header passthrough without CRLF sanitization (header injection)
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-D-002 |
+| **Severity** | MEDIUM |
+| **CWE** | CWE-113 (HTTP Response/Request Splitting) |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/websocket/mod.rs:36` |
+| **Discovered** | 2026-05-26 |
+| **Status** | ⏳ Open |
+
+**Threat model:** Attacker who controls HTTP header values in a WebSocket upgrade request (e.g., a malicious `Sec-WebSocket-Protocol` header containing CRLF).
+
+**Description:** `upgrade_to_websocket()` builds the HTTP/1.1 upstream request by appending header values directly:
+```
+req.push_str(&format!("{}: {}\r\n", k, v));
+```
+
+If a header value contains `\r\n`, the injected CRLF would split the request line and insert arbitrary headers or a second request into the upstream connection. This is a header injection / HTTP request-splitting vulnerability.
+
+Example: A client sends `Sec-WebSocket-Protocol: chat\r\nX-Injected: evil`. The upstream receives an extra `X-Injected: evil` header.
+
+**Mitigations already present:** Most HTTP/1.1 request parsers reject bare CRLF in header values. However, if the upstream is a custom server or a misconfigured proxy, injection may succeed.
+
+**Fix:** Strip `\r` and `\n` characters from header values before inclusion:
+```
+let v_safe = v.replace('\r', "").replace('\n', "");
+req.push_str(&format!("{}: {}\r\n", k, v_safe));
+```
+
+---
+
+### RNN-2026-D-003 — INFO — ACME renewal check uses file mtime, not certificate expiry
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-D-003 |
+| **Severity** | INFO |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/acme/mod.rs` — `needs_renewal()` |
+| **Discovered** | 2026-05-26 |
+| **Status** | ⏳ Open |
+
+**Description:** `needs_renewal()` reads `meta.modified()` (file modification timestamp) to decide if a certificate needs renewal. If the cert file is copied, replaced, or touched, the mtime is reset and renewal is deferred for another 60 days — regardless of the certificate's actual expiry. This could leave a shorter-lived or already-expired certificate in place beyond the intended renewal window.
+
+Additionally, Let's Encrypt certificates are valid for 90 days. The `RENEW_AFTER_DAYS = 60` constant is correct in intent, but using mtime means the renewal trigger fires 60 days after the file was *last written*, not 60 days before the cert expires.
+
+**Fix:** Parse the X.509 certificate with `rustls-pemfile` + `x509-parser` and read the `notAfter` field. Renew when `notAfter - now < 30 days`.
+
+---
+
+### RNN-2026-D-004 — INFO — Response cache caches 404 responses (potential cache poisoning)
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-D-004 |
+| **Severity** | INFO |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/cache/mod.rs` — `is_cacheable()` |
+| **Discovered** | 2026-05-26 |
+| **Status** | ⚠️ Accepted risk for current use case |
+
+**Description:** `is_cacheable()` returns `true` for HTTP 404 responses. A 404 for a path that later becomes valid (e.g., content is published after a first request) will be served stale from cache until the TTL expires. Cache poisoning requires the attacker to be the first requester of a not-yet-published URL; the impact is limited to the TTL window.
+
+For most deployments this is a non-issue and caching 404s reduces upstream load. Accepted.
+
+**Mitigation if needed:** Exclude 404 from the cacheable status set. Or expose a `cache_bypass_on_404: true` config option.
+
+---
+
+### RNN-2026-D-005 — INFO — Cache eviction: full cache silently drops new entries
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-D-005 |
+| **Severity** | INFO |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/cache/mod.rs` — `ResponseCache::put()` |
+| **Discovered** | 2026-05-26 |
+| **Status** | ⚠️ Accepted risk |
+
+**Description:** When the cache is at `max_size` and no expired entries exist, `put()` silently skips the insertion. An attacker who fills the cache with requests to unique URLs (cache flood) can prevent legitimate responses from ever being cached, degrading the server to no-cache performance permanently until the cache expires naturally.
+
+This is a low-impact DoS that degrades performance but does not expose data or allow code execution.
+
+**Mitigation:** Implement LRU eviction (evict the least-recently-accessed entry instead of skipping). This would require an ordered data structure (e.g., `linked-hash-map` crate). Accepted for alpha; LRU is a v1.0 quality-of-life item.
+
+---
+
+## Updated Known Limitations and Accepted Risks (post Cycle D)
+
+| # | Risk | Cycle | Status |
+|---|------|-------|--------|
+| 1 | No HUMAN-EXTERNAL audit | A | Open |
+| 2 | Username path traversal in home_dir | B | Open (B-002) |
+| 3 | TLS: self-signed cert, no auto-renewal | B | Mitigated: ACME added in v0.4.0 |
+| 4 | bcrypt error silently swallowed | A | Open (A-006) |
+| 5 | User IDs are nanosecond timestamps | B | Open (B-001) |
+| 6 | No supply chain audit | A | Open |
+| 7 | Rate limiting is per-IP only | A | Accepted |
+| 8 | io_uring zero-copy not audited | A | Open |
+| 9 | ICMP guard degrades on VMs without inet filter | C | Accepted (C-001) |
+| 10 | Scan detector first probe response is 404 | C | Open (C-003) |
+| 11 | HTTP/2 per-stream task spawn unbounded | D | Open (D-001) |
+| 12 | WebSocket header CRLF injection | D | Open (D-002) |
+| 13 | ACME renewal uses mtime not cert expiry | D | Open (D-003) |
+| 14 | Cache caches 404 responses | D | Accepted (D-004) |
+| 15 | Cache eviction silently drops when full | D | Accepted (D-005) |
+
+## Audit trail (updated)
+
+| Cycle | Date | Source | Model | Scope |
+|-------|------|--------|-------|-------|
+| A | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | handler, auth, API, URI validation |
+| B | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | multiuser, TLS, auth (full), proxy, fastcgi |
+| C | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | ICMP guard, scan detector, AbuseIPDB, command injection, is_tls |
+| D | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | http2, websocket, cache, acme |
