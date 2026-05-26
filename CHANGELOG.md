@@ -1,5 +1,43 @@
 # Changelog — RunNginx
 
+## [0.1.8] — 2026-05-26
+
+### Added
+
+- **Firewall auto-management**: RunNginx opens its configured listen ports at startup and closes them on SIGINT/SIGTERM. Detects and uses ufw, nftables, or iptables automatically. Rules are tagged (`# runnginx` or configurable via `firewall_tag`). Config directives: `firewall_manage`, `firewall_backend`, `firewall_tag`.
+
+### Fixed
+
+- **QUERY_STRING not forwarded to FastCGI** (security: closes #28): The `query` field in `Request` was declared `_query` and never read. FastCGI received only the path component of the URI — all `$_GET` parameters were empty in PHP. Fixed by constructing `full_uri = path + "?" + query` before calling `fastcgi_request()`.
+- **Constant-time API key comparison** (security RNN-2026-A-001: closes #25): API key comparison in the request handler now uses `subtle::ConstantTimeEq` to prevent timing side-channel.
+- **HTTP 401 instead of 200 on auth failure** (security RNN-2026-A-003: closes #26): Authentication failures now return `401 Unauthorized` instead of `200 OK` with a plain-text body.
+
+---
+
+## [0.1.7] — 2026-05-26
+
+### Added
+
+- **CloudPanel-style Web UI dashboard**: full management interface with sidebar navigation — Dashboard, Virtual Hosts, Users, SSH & Access, Live Metrics, Logs.
+
+---
+
+## [0.1.6] — 2026-05-26
+
+### Changed
+
+- **Web UI login modal**: replaced browser `prompt()` with a styled API key input modal.
+
+---
+
+## [0.1.5] — 2026-05-26
+
+### Added
+
+- **Live access log API**: `GET /api/logs?n=N` returns the last N access log lines. Web UI polls and displays a live log tail.
+
+---
+
 ## [0.1.4] -- 2026-05-26
 
 ### Added

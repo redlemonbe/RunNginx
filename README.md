@@ -48,7 +48,7 @@ At the end you'll see:
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- Version:  runnginx v0.1.7
+ Version:  runnginx v0.1.8
  API key:  a1b2c3d4...   ← save this
  Config:   /etc/runnginx/nginx.conf
  Web UI:   http://YOUR_SERVER/ui
@@ -109,6 +109,31 @@ http {
 ```
 
 Full reference: [docs/configuration.md](docs/configuration.md)
+
+---
+
+
+## Firewall management
+
+RunNginx can open and close its own firewall rules automatically. Supported backends: ufw, nftables, iptables. The backend is auto-detected.
+
+```nginx
+# /etc/runnginx/nginx.conf
+http {
+    firewall_manage  on;          # default: on
+    firewall_backend auto;        # auto | ufw | nftables | iptables
+    firewall_tag     runnginx;    # tag for created rules (default: runnginx)
+
+    server {
+        listen 0.0.0.0:80;
+        # ...
+    }
+}
+```
+
+On startup RunNginx opens the configured listen ports. On SIGINT/SIGTERM it closes them. Rules are tagged (`# runnginx`) so they can be audited and removed independently.
+
+Set `firewall_manage off` to manage firewall rules manually.
 
 ---
 

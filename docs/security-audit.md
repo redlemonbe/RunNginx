@@ -231,3 +231,133 @@ Per R8, the following risks are accepted for this version:
 | Cycle | Date | Source | Model | Scope |
 |-------|------|--------|-------|-------|
 | A | 2026-05-26 | [AI-INTERNAL] | Claude Sonnet 4.6 | handler, auth, API, URI validation |
+
+---
+
+## Cycle B — 2026-05-26 [AI-INTERNAL]
+
+**Scope:** `src/multiuser/mod.rs`, `src/tls/mod.rs`, `src/auth/mod.rs` (full), `src/server/handler.rs` (re-review), `src/api/mod.rs`, `src/proxy/mod.rs`, `src/fastcgi/mod.rs`
+**Model:** Claude Sonnet 4.6
+**Note:** Cycle B includes a full review of `src/tls/mod.rs` (deferred in Cycle A under A-005) and the multi-user module (`src/multiuser/mod.rs`) flagged in Cycle A Known Limitations.
+
+### Status update — RNN-2026-A-005 (TLS not audited)
+
+Full review completed in this cycle. rustls with `ServerConfig::builder().with_no_client_auth()` — safe default, no client cert required. ALPN correctly negotiated (`h2`, `http/1.1`). Self-signed cert auto-generated via rcgen. Sub-finding documented as RNN-2026-B-003.
+
+**Updated status:** Partially addressed — TLS reviewed, sub-finding documented as B-003.
+
+---
+
+### RNN-2026-B-001 — `generate_id()` uses nanosecond timestamp as user ID
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-B-001 |
+| **Severity** | LOW |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/multiuser/mod.rs:196-199` |
+| **Discovered** | 2026-05-26 |
+| **Status** | ⏳ Open |
+
+**Threat model:** Attacker with admin API access enumerating user IDs.
+
+**Description:** User IDs are generated as `format!("{:x}", SystemTime::now().as_nanos())` — a hex-encoded nanosecond timestamp. IDs are monotonically increasing and predictable: any user ID can be approximated by sampling the epoch at account creation time.
+
+Practical impact is limited: all ID-based operations (`GET /api/users/{id}`, `DELETE /api/users/{id}`) require admin authentication. Without admin auth, guessing an ID grants nothing. A same-nanosecond collision creates a duplicate-ID bug, not a security bypass.
+
+**Exploit path:** Admin-authenticated attacker enumerates user IDs by brute-force timestamp guessing. Prerequisite: admin API key compromise.
+
+**Fix:** Use `/dev/urandom` entropy, same approach as `generate_api_key()`: read 16 random bytes, hex-encode them.
+
+**Residual risk after fix:** None.
+
+**Verification:** Generate two users rapidly; verify IDs are not adjacent hex timestamps.
+
+---
+
+### RNN-2026-B-002 — Username not validated before constructing `/home/<username>`
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-B-002 |
+| **Severity** | MEDIUM |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/multiuser/mod.rs:245` |
+| **Discovered** | 2026-05-26 |
+| **Status** | ⏳ Open |
+
+**Threat model:** Admin creating an account with a crafted username to pre-position a path traversal.
+
+**Description:** `home_dir` is constructed as `PathBuf::from(format!("/home/{}", username))` with no validation. A username such as `../../etc` yields `home_dir = PathBuf("/etc")`, which is persisted to `users.toml`. The value is not currently used to enforce filesystem isolation — that layer is not yet implemented. However, when vhost isolation (roadmap) uses `home_dir` as a boundary, any stored traversal bypasses all isolation without a second input validation step.
+
+**Exploit path:** Requires admin API key. Admin POSTs `{"username":"../../etc","domains":[]}`. When file isolation is added without re-validating the stored `home_dir`, the account has read/write access to `/etc`.
+
+**Fix:** Validate username at the API handler before calling `create_user()`: reject any value that is empty, contains `/`, `\`, `.`, or non-alphanumeric characters beyond `-` and `_`. Apply canonical Linux username rules.
+
+**Residual risk after fix:** None — traversal prevented at ingress.
+
+**Verification:** POST `{"username":"../../etc"}` → expect 400. POST `{"username":"alice"}` → expect 200.
+
+---
+
+### RNN-2026-B-003 — Self-signed cert has hard-coded validity dates, no rotation
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-B-003 |
+| **Severity** | INFO |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/tls/mod.rs:72-73` |
+| **Discovered** | 2026-05-26 |
+| **Status** | ⏳ Open |
+
+**Threat model:** Certificate expires in production with no automated renewal path.
+
+**Description:** Auto-generated self-signed certificates use `not_before = 2024-01-01` and `not_after = 2030-01-01`. The cert is generated once on first startup and never rotated. No ACME or expiry-check mechanism exists.
+
+**Impact:** Informational for experimental use. Cert expires 2030-01-01. Production deployments behind a TLS-terminating proxy are unaffected.
+
+**Fix:** At startup, if cert file exists, parse `not_after` and regenerate if within 30 days of expiry. ACME integration (rustls-acme crate) is the production-grade solution.
+
+**Verification:** `openssl x509 -text -noout -in /etc/runnginx/tls/cert.pem | grep "Not After"`.
+
+---
+
+### RNN-2026-B-004 — QUERY_STRING not forwarded to FastCGI (Fixed)
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-B-004 |
+| **Severity** | MEDIUM |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/server/handler.rs` |
+| **Discovered** | 2026-05-26 |
+| **Status** | ✅ Fixed — v0.1.8, commit 883d760 — closes #28 |
+
+**Description:** `query` field in `Request` was declared `_query: String` (unused). FastCGI received only the path — query string dropped silently. PHP `$_GET` parameters were always empty.
+
+**Fix applied:** Renamed to `query`, constructed `full_uri = format!("{}?{}", req.path, req.query)` before calling `fastcgi_request()`.
+
+**Verification:** `curl 'http://host/index.php?action=orders'` — PHP `$_GET['action']` receives `orders`.
+
+---
+
+## Updated Known Limitations and Accepted Risks (post Cycle B)
+
+| # | Risk | Cycle | Status |
+|---|------|-------|--------|
+| 1 | No [HUMAN-EXTERNAL] audit performed | A | Open |
+| 2 | Username path traversal in home_dir construction | B | Open (B-002) |
+| 3 | TLS: self-signed cert, no auto-renewal | B | Open (B-003) |
+| 4 | bcrypt error silently swallowed | A | Open (A-006) |
+| 5 | User IDs are nanosecond timestamps | B | Open (B-001) |
+| 6 | No supply chain audit of dependencies | A | Open |
+| 7 | Rate limiting is per-IP only | A | Accepted |
+| 8 | io_uring zero-copy not audited | A | Open |
+
+## Audit trail (updated)
+
+| Cycle | Date | Source | Model | Scope |
+|-------|------|--------|-------|-------|
+| A | 2026-05-26 | [AI-INTERNAL] | Claude Sonnet 4.6 | handler, auth, API, URI validation |
+| B | 2026-05-26 | [AI-INTERNAL] | Claude Sonnet 4.6 | multiuser, TLS, auth (full), proxy, fastcgi |
