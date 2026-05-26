@@ -201,8 +201,8 @@ async fn serve_path(
         };
     }
 
-    // Read and serve full file.
-    match tokio::fs::read(&effective).await {
+    // Read and serve full file (io_uring if available, otherwise tokio::fs).
+    match crate::ioring::read_file(&effective).await {
         Ok(bytes) => StaticResponse {
             status:  200,
             headers: base_headers(mime, file_size, &etag),

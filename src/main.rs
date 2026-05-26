@@ -25,6 +25,7 @@ mod cache;
 mod multiuser;
 mod stats;
 mod http2;
+mod ioring;
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
@@ -61,6 +62,8 @@ async fn main() -> Result<()> {
         .init();
 
     info!("RunNginx v{} — SIMD level: {:?}", env!("CARGO_PKG_VERSION"), simd::simd_level());
+    #[cfg(feature = "io_uring")]
+    crate::ioring::init();
 
     let cfg = config::load(&cli.config)?;
     info!("config OK: {} server block(s)", cfg.http.servers.len());
