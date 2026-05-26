@@ -342,22 +342,72 @@ Practical impact is limited: all ID-based operations (`GET /api/users/{id}`, `DE
 
 ---
 
-## Updated Known Limitations and Accepted Risks (post Cycle B)
+
+---
+
+## Cycle C — [AI-INTERNAL] — 2026-05-26 — v0.4.0 (ICMP guard + scan detector)
+
+**Scope:** ICMP guard (icmp_guard/mod.rs), scan detector (scan_detector/mod.rs), AbuseIPDB reporter, command injection audit, config parser (new ICMP/scan directives), is_tls threading.
+
+### C-001 — INFO — ICMP guard nft rule fails on VMs without inet filter table
+
+| Field | Value |
+|-------|-------|
+| **Severity** | INFO |
+| **Discovered** | 2026-05-26 |
+| **Status** | Accepted |
+
+Description: On VMs where nft has no `inet filter` table, the icmp_guard rule fails with "No such file or directory". Logs WARN and continues without ICMP protection. Graceful degradation — no crash.
+
+Accepted: lab/prod use ufw/iptables which succeeds. ICMP protection is hardening, not a security boundary.
+
+---
+
+### C-002 — INFO — AbuseIPDB curl: no command injection vector confirmed
+
+| Field | Value |
+|-------|-------|
+| **Severity** | INFO |
+| **Discovered** | 2026-05-26 |
+| **Status** | No finding |
+
+Description: Command::new("curl").args([...]) — no shell involved. ip is Rust IpAddr (always safe). comment is urlencodecomment()-encoded (percent-encodes all non-alphanumeric). No injection path.
+
+---
+
+### C-003 — LOW — Scan detector: first probe path request returns 404 not 429
+
+| Field | Value |
+|-------|-------|
+| **Severity** | LOW |
+| **Discovered** | 2026-05-26 |
+| **Status** | Open |
+
+Description: Single probe path hit = 10 pts (threshold 60). First request to /.env gets 404 before score accumulates. Subsequent requests trigger 429 block.
+
+Impact: Low — attacker sees one 404, then gets blocked. No sensitive data leaked.
+
+---
+
+## Updated Known Limitations and Accepted Risks (post Cycle C)
 
 | # | Risk | Cycle | Status |
 |---|------|-------|--------|
-| 1 | No [HUMAN-EXTERNAL] audit performed | A | Open |
-| 2 | Username path traversal in home_dir construction | B | Open (B-002) |
+| 1 | No HUMAN-EXTERNAL audit performed | A | Open |
+| 2 | Username path traversal in home_dir | B | Open (B-002) |
 | 3 | TLS: self-signed cert, no auto-renewal | B | Open (B-003) |
 | 4 | bcrypt error silently swallowed | A | Open (A-006) |
 | 5 | User IDs are nanosecond timestamps | B | Open (B-001) |
-| 6 | No supply chain audit of dependencies | A | Open |
+| 6 | No supply chain audit | A | Open |
 | 7 | Rate limiting is per-IP only | A | Accepted |
 | 8 | io_uring zero-copy not audited | A | Open |
+| 9 | ICMP guard degrades on VMs without inet filter | C | Accepted (C-001) |
+| 10 | Scan detector first probe response is 404 | C | Open (C-003) |
 
 ## Audit trail (updated)
 
 | Cycle | Date | Source | Model | Scope |
 |-------|------|--------|-------|-------|
-| A | 2026-05-26 | [AI-INTERNAL] | Claude Sonnet 4.6 | handler, auth, API, URI validation |
-| B | 2026-05-26 | [AI-INTERNAL] | Claude Sonnet 4.6 | multiuser, TLS, auth (full), proxy, fastcgi |
+| A | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | handler, auth, API, URI validation |
+| B | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | multiuser, TLS, auth (full), proxy, fastcgi |
+| C | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | ICMP guard, scan detector, AbuseIPDB, command injection, is_tls |
