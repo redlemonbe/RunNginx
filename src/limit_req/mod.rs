@@ -93,3 +93,54 @@ impl ZoneRegistry {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    fn ip(n: u8) -> IpAddr { IpAddr::V4(Ipv4Addr::new(127, 0, 0, n)) }
+
+    #[test]
+    fn allow_within_burst() {
+        let zone = LimitReqZone::new("test", 1.0);
+        for _ in 0..5 {
+            assert!(zone.allow(ip(1), 5));
+        }
+    }
+
+    #[test]
+    fn deny_when_burst_exhausted() {
+        let zone = LimitReqZone::new("test", 0.001); // very slow refill
+        let burst = 3u32;
+        for _ in 0..burst { zone.allow(ip(2), burst); }
+        assert!(!zone.allow(ip(2), burst));
+    }
+
+    #[test]
+    fn different_ips_independent() {
+        let zone = LimitReqZone::new("test", 0.001);
+        let burst = 2u32;
+        for _ in 0..burst { zone.allow(ip(3), burst); }
+        assert!(!zone.allow(ip(3), burst));
+        assert!(zone.allow(ip(4), burst));
+    }
+
+    #[test]
+    fn parse_rate_per_second() {
+        assert_eq!(ZoneRegistry::parse_rate("10r/s"), Some(10.0));
+    }
+
+    #[test]
+    fn parse_rate_per_minute() {
+        let r = ZoneRegistry::parse_rate("60r/m").unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_rate_invalid() {
+        assert_eq!(ZoneRegistry::parse_rate("10rps"), None);
+        assert_eq!(ZoneRegistry::parse_rate(""), None);
+    }
+}
+

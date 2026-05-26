@@ -600,3 +600,61 @@ fn extract_status_from_response(bytes: &[u8]) -> u16 {
         .and_then(|s| s.parse().ok())
         .unwrap_or(200)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_response_200() {
+        let hdrs = vec![
+            ("Content-Type".to_owned(), "text/plain".to_owned()),
+            ("Content-Length".to_owned(), "5".to_owned()),
+        ];
+        let bytes = format_response(200, &hdrs, false, b"hello");
+        let s = std::str::from_utf8(&bytes).unwrap();
+        assert!(s.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(s.contains("Content-Type: text/plain\r\n"));
+        assert!(s.contains("Connection: close\r\n"));
+        assert!(s.ends_with("hello"));
+    }
+
+    #[test]
+    fn format_response_keepalive() {
+        let bytes = format_response(204, &[], true, b"");
+        let s = std::str::from_utf8(&bytes).unwrap();
+        assert!(s.contains("Connection: keep-alive\r\n"));
+    }
+
+    #[test]
+    fn format_response_404() {
+        let bytes = format_response(404, &[], false, b"");
+        let s = std::str::from_utf8(&bytes).unwrap();
+        assert!(s.starts_with("HTTP/1.1 404 Not Found\r\n"));
+    }
+
+    #[test]
+    fn bad_request_is_400() {
+        let r = HandlerResult::bad_request("test", false);
+        assert_eq!(r.status, 400);
+        let s = std::str::from_utf8(&r.bytes).unwrap();
+        assert!(s.contains("400 Bad Request"));
+        assert!(s.contains("test"));
+    }
+
+    #[test]
+    fn extract_status_200() {
+        assert_eq!(extract_status_from_response(b"HTTP/1.1 200 OK\r\n\r\n"), 200);
+    }
+
+    #[test]
+    fn extract_status_404() {
+        assert_eq!(extract_status_from_response(b"HTTP/1.1 404 Not Found\r\n\r\n"), 404);
+    }
+
+    #[test]
+    fn extract_status_empty_defaults_200() {
+        assert_eq!(extract_status_from_response(b""), 200);
+    }
+}
+

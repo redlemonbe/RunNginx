@@ -236,3 +236,105 @@ pub fn is_uri_safe(uri: &[u8]) -> bool {
     }
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uri_safe_normal() {
+        assert!(is_uri_safe(b"/index.html"));
+        assert!(is_uri_safe(b"/api/v1/status?foo=bar&baz=1"));
+        assert!(is_uri_safe(b"/"));
+    }
+
+    #[test]
+    fn uri_safe_rejects_null_byte() {
+        assert!(!is_uri_safe(b"/foo\x00bar"));
+        assert!(!is_uri_safe(b"%00"));
+    }
+
+    #[test]
+    fn uri_safe_rejects_path_traversal() {
+        assert!(!is_uri_safe(b"/../etc/passwd"));
+        assert!(!is_uri_safe(b"/foo/../bar"));
+    }
+
+    #[test]
+    fn uri_safe_rejects_encoded_slash() {
+        assert!(!is_uri_safe(b"/foo%2Fbar"));
+        assert!(!is_uri_safe(b"/foo%5Cbar"));
+    }
+
+    #[test]
+    fn uri_safe_rejects_double_slash() {
+        assert!(!is_uri_safe(b"//etc/passwd"));
+    }
+
+    #[test]
+    fn uri_safe_rejects_invalid_utf8() {
+        assert!(!is_uri_safe(&[b'/', 0xff, 0xfe, b'/']));
+    }
+
+    #[test]
+    fn parse_request_line_get() {
+        let buf = b"GET /index.html HTTP/1.1\r\n";
+        let (rl, consumed) = parse_request_line(buf).unwrap();
+        assert_eq!(rl.method, b"GET");
+        assert_eq!(rl.uri, b"/index.html");
+        assert_eq!(rl.version, b"HTTP/1.1");
+        assert_eq!(consumed, buf.len());
+    }
+
+    #[test]
+    fn parse_request_line_post_with_query() {
+        let buf = b"POST /api/v1/submit?key=val HTTP/1.1\r\n";
+        let (rl, _) = parse_request_line(buf).unwrap();
+        assert_eq!(rl.method, b"POST");
+        assert_eq!(rl.uri, b"/api/v1/submit?key=val");
+    }
+
+    #[test]
+    fn parse_request_line_missing_crlf() {
+        assert!(parse_request_line(b"GET / HTTP/1.1").is_err());
+    }
+
+    #[test]
+    fn parse_request_line_missing_space() {
+        assert!(parse_request_line(b"GETHTTP/1.1\r\n").is_err());
+    }
+
+    #[test]
+    fn parse_request_line_uri_too_long() {
+        let uri = "A".repeat(MAX_URI_LEN + 1);
+        let buf = format!("GET /{} HTTP/1.1\r\n", uri);
+        assert!(parse_request_line(buf.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn parse_headers_basic() {
+        let buf = b"Host: example.com\r\nContent-Length: 0\r\n\r\n";
+        let (hdrs, consumed) = parse_headers(buf).unwrap();
+        assert_eq!(hdrs.len(), 2);
+        assert_eq!(hdrs[0].name, b"Host");
+        assert_eq!(hdrs[0].value, b"example.com");
+        assert_eq!(consumed, buf.len());
+    }
+
+    #[test]
+    fn parse_headers_empty() {
+        let buf = b"\r\n";
+        let (hdrs, consumed) = parse_headers(buf).unwrap();
+        assert!(hdrs.is_empty());
+        assert_eq!(consumed, 2);
+    }
+
+    #[test]
+    fn parse_headers_too_many() {
+        let single = b"X-H: v\r\n";
+        let mut buf: Vec<u8> = (0..=MAX_HEADER_COUNT).flat_map(|_| single.iter().copied()).collect();
+        buf.extend_from_slice(b"\r\n");
+        assert!(parse_headers(&buf).is_err());
+    }
+}
+
