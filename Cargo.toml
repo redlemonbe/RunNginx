@@ -1,6 +1,6 @@
 [package]
 name        = "runnginx"
-version = "0.5.1"
+version = "0.5.2"
 edition     = "2021"
 description = "High-performance nginx-compatible HTTP server — SIMD parsing, XDP kernel-bypass, no restart ever"
 license     = "AGPL-3.0-only"

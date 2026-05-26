@@ -173,6 +173,38 @@ pub fn create_site(req: &SiteRequest, config_path: &Path) -> Value {
 }
 
 /// List all sites from sites-enabled directory.
+
+/// Returns SSL status object for a domain: {active: bool, expires_at: Option<String>}
+fn ssl_status_for(domain: &str, config_dir: &Path) -> Value {
+    // Try Let's Encrypt cert first
+    let le_cert = PathBuf::from(format!("/etc/letsencrypt/live/{}/fullchain.pem", domain));
+    // Then custom cert
+    let custom_cert = config_dir.join("ssl").join(domain).join("cert.pem");
+
+    let cert_path = if le_cert.exists() {
+        le_cert
+    } else if custom_cert.exists() {
+        custom_cert
+    } else {
+        return json!({"active": false, "expires_at": null});
+    };
+
+    // Parse expiry via openssl x509
+    let out = Command::new("openssl")
+        .args(["x509", "-noout", "-enddate", "-in", cert_path.to_str().unwrap()])
+        .output();
+    let expires_at = match out {
+        Ok(o) if o.status.success() => {
+            let s = String::from_utf8_lossy(&o.stdout);
+            // "notAfter=May 25 00:00:00 2026 GMT"
+            s.trim().strip_prefix("notAfter=")
+                .map(|d| d.trim().to_string())
+        }
+        _ => None,
+    };
+    json!({"active": true, "expires_at": expires_at})
+}
+
 pub fn list_sites(config_path: &Path) -> Value {
     let config_dir = config_path.parent().unwrap_or(Path::new("/etc/runnginx"));
     let sites_enabled = config_dir.join("sites-enabled");
@@ -191,10 +223,15 @@ pub fn list_sites(config_path: &Path) -> Value {
             let domain = fname.to_string_lossy()
                 .trim_end_matches(".conf").to_string();
             let meta_path = sites_meta_dir.join(&domain).join("meta.json");
-            let meta: Value = std::fs::read_to_string(&meta_path)
+            let mut meta: Value = std::fs::read_to_string(&meta_path)
                 .ok()
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .unwrap_or_else(|| json!({"domain": domain, "type": "unknown"}));
+            // Augment with live SSL status
+            let ssl_status = ssl_status_for(&domain, config_dir);
+            if let Value::Object(ref mut m) = meta {
+                m.insert("ssl_status".to_string(), ssl_status);
+            }
             meta
         })
         .collect();

@@ -191,7 +191,7 @@ pub fn handle_api(
             if !has_valid_session(headers, ctx) && !is_authorized(headers, &ctx.http.api_key) {
                 return Some(json_response(401, r#"{"error":"unauthorized"}"#));
             }
-            Some(handle_sites_route(p, method, body, ctx))
+            Some(handle_sites_route(p, query, method, body, ctx))
         }
         "/api/php/versions" if method == "GET" => {
             if !has_valid_session(headers, ctx) && !is_authorized(headers, &ctx.http.api_key) {
@@ -563,12 +563,11 @@ fn sites_list(ctx: &Arc<ApiContext>) -> Vec<u8> {
     json_response(200, &list.to_string())
 }
 
-fn handle_sites_route(path: &str, method: &str, body: &[u8], ctx: &Arc<ApiContext>) -> Vec<u8> {
+fn handle_sites_route(path: &str, query: &str, method: &str, body: &[u8], ctx: &Arc<ApiContext>) -> Vec<u8> {
     // DELETE /api/sites/{domain}
     if method == "DELETE" && path.len() > "/api/sites/".len() {
         let domain = &path["/api/sites/".len()..];
-        // ?delete_files=true to also remove webroot
-        let delete_files = false; // from query param — simplified
+        let delete_files = query.split('&').any(|p| p == "delete_files=true" || p == "delete_files=1");
         let result = sites::delete_site(domain, &ctx.config_path, delete_files);
         if result["ok"].as_bool().unwrap_or(false) {
             let _ = ctx.reload_tx.send(());
