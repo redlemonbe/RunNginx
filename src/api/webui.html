@@ -197,6 +197,10 @@ canvas{display:block}
       Live Metrics
     </a>
     <div class="nav-group">Hosting</div>
+    <a class="nav-item" onclick="nav('sites',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+      Sites
+    </a>
     <a class="nav-item" onclick="nav('vhosts',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
       Virtual Hosts
@@ -251,6 +255,232 @@ canvas{display:block}
   </div>
 
   <div class="content">
+
+
+    <!-- ═══ SITES ═══ -->
+    <div id="page-sites" class="page">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <div>
+          <div style="font-size:18px;font-weight:700">Sites</div>
+          <div style="font-size:13px;color:var(--text2);margin-top:2px">Manage your hosted websites</div>
+        </div>
+        <button class="btn btn-primary" onclick="openCreateSite()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Create Site
+        </button>
+      </div>
+      <div id="sites-grid" class="site-grid"></div>
+      <div id="sites-empty" style="display:none">
+        <div class="card" style="text-align:center;padding:48px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40" style="opacity:.3;margin:0 auto 14px;display:block"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          <div style="font-size:15px;font-weight:600;margin-bottom:6px">No sites yet</div>
+          <div style="font-size:13px;color:var(--text2);margin-bottom:18px">Create your first hosted website</div>
+          <button class="btn btn-primary" onclick="openCreateSite()">Create Site</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Create Site Modal -->
+    <div class="overlay" id="modal-create-site">
+      <div class="modal" style="width:540px;max-width:96vw">
+        <div class="modal-header">
+          <div class="modal-title" id="create-site-title">Create Site</div>
+          <button class="btn btn-ghost btn-sm" onclick="closeCreateSite()">✕</button>
+        </div>
+        <div class="modal-body">
+          <!-- Wizard steps indicator -->
+          <div class="wizard-steps" id="wizard-steps">
+            <div class="wizard-step-dot active" id="wdot-1"><div class="step-num">1</div>Type</div>
+            <div class="wizard-step-dot" id="wdot-2"><div class="step-num">2</div>Config</div>
+            <div class="wizard-step-dot" id="wdot-3"><div class="step-num">3</div>SSL</div>
+            <div class="wizard-step-dot" id="wdot-4"><div class="step-num">4</div>Done</div>
+          </div>
+
+          <!-- Step 1: Type -->
+          <div id="wizard-step-1">
+            <div style="font-size:14px;font-weight:600;margin-bottom:4px">Choose a site type</div>
+            <div style="font-size:12px;color:var(--text2);margin-bottom:0">Select the type of website you want to create.</div>
+            <div class="type-grid">
+              <div class="type-card" id="tc-static" onclick="selectSiteType('static')">
+                <div class="type-card-icon type-card-icon-static">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+                <div class="type-card-name">Static HTML</div>
+                <div class="type-card-desc">HTML, CSS, JS — no server processing</div>
+              </div>
+              <div class="type-card" id="tc-php" onclick="selectSiteType('php')">
+                <div class="type-card-icon type-card-icon-php">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                </div>
+                <div class="type-card-name">PHP Site</div>
+                <div class="type-card-desc">PHP-FPM via FastCGI — choose PHP version</div>
+              </div>
+              <div class="type-card" id="tc-wordpress" onclick="selectSiteType('wordpress')">
+                <div class="type-card-icon type-card-icon-wordpress">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg>
+                </div>
+                <div class="type-card-name">WordPress</div>
+                <div class="type-card-desc">Auto-install WordPress + MySQL setup</div>
+              </div>
+              <div class="type-card" id="tc-proxy" onclick="selectSiteType('proxy')">
+                <div class="type-card-icon type-card-icon-proxy">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="var(--yellow)" stroke-width="2"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><line x1="7" y1="12" x2="17" y2="6"/><line x1="7" y1="12" x2="17" y2="18"/></svg>
+                </div>
+                <div class="type-card-name">Reverse Proxy</div>
+                <div class="type-card-desc">Forward traffic to an upstream server</div>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:16px">
+              <button class="btn btn-primary" id="btn-next-1" onclick="wizardStep(2)" disabled>Next →</button>
+            </div>
+          </div>
+
+          <!-- Step 2: Config -->
+          <div id="wizard-step-2" style="display:none">
+            <div class="form-group">
+              <label class="form-label">Domain Name</label>
+              <input class="input" id="site-domain" type="text" placeholder="example.com">
+            </div>
+            <!-- PHP version selector (php + wordpress) -->
+            <div id="field-php" style="display:none">
+              <div class="form-group">
+                <label class="form-label">PHP Version</label>
+                <select class="input" id="site-php-version">
+                  <option value="">Detecting…</option>
+                </select>
+              </div>
+            </div>
+            <!-- Upstream URL (proxy) -->
+            <div id="field-upstream" style="display:none">
+              <div class="form-group">
+                <label class="form-label">Upstream URL</label>
+                <input class="input" id="site-upstream" type="text" placeholder="http://127.0.0.1:3000">
+              </div>
+            </div>
+            <!-- WordPress DB fields -->
+            <div id="field-wp-db" style="display:none">
+              <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin:14px 0 8px">Database</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                <div class="form-group">
+                  <label class="form-label">DB Host</label>
+                  <input class="input" id="wp-db-host" type="text" value="localhost">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">DB Port</label>
+                  <input class="input" id="wp-db-port" type="number" value="3306">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Root User</label>
+                  <input class="input" id="wp-root-user" type="text" value="root">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Root Password</label>
+                  <input class="input" id="wp-root-pass" type="password" placeholder="MySQL root password">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">New DB Name</label>
+                  <input class="input" id="wp-db-name" type="text" placeholder="mysite_db">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">New DB User</label>
+                  <input class="input" id="wp-db-user" type="text" placeholder="mysite_user">
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">New DB Password</label>
+                <input class="input" id="wp-db-pass" type="password" placeholder="Strong password for WordPress DB user">
+              </div>
+            </div>
+            <div class="form-err" id="step2-err" style="display:none;margin-top:10px"></div>
+            <div style="display:flex;justify-content:space-between;margin-top:16px">
+              <button class="btn btn-ghost" onclick="wizardStep(1)">← Back</button>
+              <button class="btn btn-primary" onclick="wizardStep(3)">Next →</button>
+            </div>
+          </div>
+
+          <!-- Step 3: SSL -->
+          <div id="wizard-step-3" style="display:none">
+            <div style="font-size:14px;font-weight:600;margin-bottom:4px">SSL Configuration</div>
+            <div style="font-size:12px;color:var(--text2);margin-bottom:0">Choose how to secure your site with HTTPS.</div>
+            <div class="ssl-opts">
+              <div class="ssl-opt selected" id="ssl-none" onclick="selectSsl('none')">
+                <div class="ssl-opt-name">No SSL</div>
+                <div class="ssl-opt-desc">HTTP only — configure SSL later</div>
+              </div>
+              <div class="ssl-opt" id="ssl-letsencrypt" onclick="selectSsl('letsencrypt')">
+                <div class="ssl-opt-name">Let's Encrypt</div>
+                <div class="ssl-opt-desc">Free auto-renewing certificate</div>
+              </div>
+              <div class="ssl-opt" id="ssl-custom" onclick="selectSsl('custom')">
+                <div class="ssl-opt-name">Custom Cert</div>
+                <div class="ssl-opt-desc">Import your own certificate</div>
+              </div>
+              <div class="ssl-opt" id="ssl-cloudflare" onclick="selectSsl('cloudflare')">
+                <div class="ssl-opt-name">Cloudflare</div>
+                <div class="ssl-opt-desc">Behind Cloudflare proxy — CF Origin Cert</div>
+              </div>
+            </div>
+            <!-- Let's Encrypt fields -->
+            <div id="ssl-le-fields" style="display:none;margin-top:12px">
+              <div class="form-group">
+                <label class="form-label">Email (for Let's Encrypt)</label>
+                <input class="input" id="ssl-email" type="email" placeholder="admin@example.com">
+              </div>
+            </div>
+            <!-- Custom cert fields -->
+            <div id="ssl-custom-fields" style="display:none;margin-top:12px">
+              <div class="form-group">
+                <label class="form-label">Certificate (PEM)</label>
+                <textarea class="input" id="ssl-cert" rows="4" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Private Key (PEM)</label>
+                <textarea class="input" id="ssl-key" rows="4" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"></textarea>
+              </div>
+            </div>
+            <!-- Cloudflare fields -->
+            <div id="ssl-cf-fields" style="display:none;margin-top:12px">
+              <div style="background:rgba(227,179,65,.08);border:1px solid rgba(227,179,65,.2);border-radius:6px;padding:10px 12px;font-size:12px;color:var(--text2)">
+                <b style="color:var(--yellow)">Cloudflare mode</b> — Site will only accept connections from Cloudflare IPs.
+                Upload a <b>Cloudflare Origin Certificate</b> in the fields below.
+              </div>
+              <div class="form-group" style="margin-top:10px">
+                <label class="form-label">Origin Certificate (PEM)</label>
+                <textarea class="input" id="ssl-cf-cert" rows="3" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Origin Key (PEM)</label>
+                <textarea class="input" id="ssl-cf-key" rows="3" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-top:16px">
+              <button class="btn btn-ghost" onclick="wizardStep(2)">← Back</button>
+              <button class="btn btn-primary" onclick="doCreateSite()">Create Site</button>
+            </div>
+          </div>
+
+          <!-- Step 4: Creating -->
+          <div id="wizard-step-4" style="display:none">
+            <div class="creating-state">
+              <div style="width:50px;height:50px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 20px"></div>
+              <div style="font-size:15px;font-weight:600;margin-bottom:6px">Creating site…</div>
+              <div id="creating-status" style="font-size:13px;color:var(--text2)">Setting up files and configuration</div>
+            </div>
+          </div>
+
+          <!-- Step 5: Done -->
+          <div id="wizard-step-5" style="display:none">
+            <div class="creating-state">
+              <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" width="50" height="50" style="margin:0 auto 16px;display:block"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
+              <div style="font-size:16px;font-weight:700;color:var(--green);margin-bottom:8px">Site Created!</div>
+              <div id="done-domain" style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:6px"></div>
+              <div id="done-info" style="font-size:12px;color:var(--text2);margin-bottom:20px"></div>
+              <button class="btn btn-primary" onclick="closeCreateSite();loadSites()">View Sites</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- ═══ DASHBOARD ═══ -->
     <div id="page-dashboard" class="page active">
@@ -679,6 +909,211 @@ async function logout() {
 
 
 
+
+// ── Sites Manager ─────────────────────────────────────────────────────────────
+
+let createSiteType = '';
+let createSslMode = 'none';
+
+async function loadSites() {
+  try {
+    const r = await fetch('/api/sites', {headers: hdr()});
+    if (!r) return;
+    const sites = await r.json();
+    renderSiteCards(Array.isArray(sites) ? sites : []);
+  } catch(e) {
+    console.error('loadSites:', e);
+  }
+}
+
+function renderSiteCards(sites) {
+  const grid = document.getElementById('sites-grid');
+  const empty = document.getElementById('sites-empty');
+  if (!sites.length) {
+    grid.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  const typeBadge = t => ({static:'badge-static',php:'badge-php',wordpress:'badge-wordpress',proxy:'badge-proxy'}[t]||'badge-gray');
+  const sslBadge = s => s && s !== 'none'
+    ? '<span class="site-ssl site-ssl-on">🔒 SSL</span>'
+    : '<span class="site-ssl site-ssl-off">HTTP</span>';
+  grid.innerHTML = sites.map(s => `
+    <div class="site-card">
+      <div class="site-card-top">
+        <span class="site-type-badge ${typeBadge(s.type)}">${s.type||'?'}</span>
+        ${s.php_version ? '<span style="font-size:11px;color:var(--text3)">PHP '+esc(s.php_version)+'</span>' : ''}
+      </div>
+      <div class="site-domain">${esc(s.domain||'?')}</div>
+      <div class="site-info">${s.webroot ? esc(s.webroot) : ''}</div>
+      ${sslBadge(s.ssl_mode)}
+      <div class="site-actions">
+        <a class="btn btn-ghost btn-sm" href="http://${esc(s.domain||'')}" target="_blank" rel="noopener">Open ↗</a>
+        <button class="btn btn-ghost btn-sm" style="color:var(--red);margin-left:auto" onclick="deleteSite('${esc(s.domain||'')}')">Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function deleteSite(domain) {
+  if (!confirm('Delete site ' + domain + '?\n\nThe config will be removed. Files in /var/www/' + domain + ' are kept.')) return;
+  try {
+    const r = await fetch('/api/sites/' + encodeURIComponent(domain), {method:'DELETE', headers: hdr()});
+    if (!r) return;
+    const d = await r.json();
+    if (d.ok) { toast('Site deleted'); loadSites(); }
+    else toast(d.error || 'Delete failed', 'err');
+  } catch(e) { toast('Request failed', 'err'); }
+}
+
+function openCreateSite() {
+  createSiteType = '';
+  createSslMode = 'none';
+  document.querySelectorAll('.type-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('btn-next-1').disabled = true;
+  document.getElementById('site-domain').value = '';
+  document.getElementById('site-upstream').value = '';
+  document.getElementById('ssl-email').value = '';
+  document.getElementById('ssl-cert').value = '';
+  document.getElementById('ssl-key').value = '';
+  document.getElementById('ssl-cf-cert').value = '';
+  document.getElementById('ssl-cf-key').value = '';
+  document.getElementById('step2-err').style.display = 'none';
+  showWizardStep(1);
+  document.querySelectorAll('.ssl-opt').forEach(o => o.classList.remove('selected'));
+  document.getElementById('ssl-none').classList.add('selected');
+  openModal('modal-create-site');
+  loadPhpVersions();
+}
+
+function closeCreateSite() { closeModal('modal-create-site'); }
+
+function selectSiteType(t) {
+  createSiteType = t;
+  document.querySelectorAll('.type-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('tc-' + t).classList.add('selected');
+  document.getElementById('btn-next-1').disabled = false;
+}
+
+function selectSsl(mode) {
+  createSslMode = mode;
+  document.querySelectorAll('.ssl-opt').forEach(o => o.classList.remove('selected'));
+  document.getElementById('ssl-' + mode).classList.add('selected');
+  document.getElementById('ssl-le-fields').style.display = mode === 'letsencrypt' ? '' : 'none';
+  document.getElementById('ssl-custom-fields').style.display = mode === 'custom' ? '' : 'none';
+  document.getElementById('ssl-cf-fields').style.display = mode === 'cloudflare' ? '' : 'none';
+}
+
+function showWizardStep(n) {
+  [1,2,3,4,5].forEach(i => {
+    const el = document.getElementById('wizard-step-' + i);
+    if (el) el.style.display = i === n ? '' : 'none';
+  });
+  [1,2,3,4].forEach(i => {
+    const dot = document.getElementById('wdot-' + i);
+    if (dot) {
+      dot.classList.remove('active','done');
+      if (i < n) dot.classList.add('done');
+      else if (i === n) dot.classList.add('active');
+    }
+  });
+  document.getElementById('wizard-steps').style.display = n >= 4 ? 'none' : '';
+}
+
+function wizardStep(n) {
+  if (n === 3) {
+    const domain = document.getElementById('site-domain').value.trim();
+    if (!domain) {
+      document.getElementById('step2-err').textContent = 'Domain name is required';
+      document.getElementById('step2-err').style.display = '';
+      return;
+    }
+    document.getElementById('step2-err').style.display = 'none';
+  }
+  // Show/hide type-specific fields
+  if (n === 2) {
+    const isPhp = createSiteType === 'php' || createSiteType === 'wordpress';
+    document.getElementById('field-php').style.display = isPhp ? '' : 'none';
+    document.getElementById('field-upstream').style.display = createSiteType === 'proxy' ? '' : 'none';
+    document.getElementById('field-wp-db').style.display = createSiteType === 'wordpress' ? '' : 'none';
+  }
+  showWizardStep(n);
+}
+
+async function loadPhpVersions() {
+  try {
+    const r = await fetch('/api/php/versions', {headers: hdr()});
+    if (!r) return;
+    const versions = await r.json();
+    const sel = document.getElementById('site-php-version');
+    if (Array.isArray(versions) && versions.length) {
+      sel.innerHTML = versions.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+    } else {
+      sel.innerHTML = '<option value="8.2">8.2 (default)</option>';
+    }
+  } catch(e) {
+    document.getElementById('site-php-version').innerHTML = '<option value="8.2">8.2 (default)</option>';
+  }
+}
+
+async function doCreateSite() {
+  showWizardStep(4);
+  const domain = document.getElementById('site-domain').value.trim();
+  const phpVersion = document.getElementById('site-php-version').value;
+  const body = {
+    domain,
+    type: createSiteType,
+    ssl_mode: createSslMode,
+    cloudflare: createSslMode === 'cloudflare',
+  };
+  if (createSiteType === 'php' || createSiteType === 'wordpress') {
+    body.php_version = phpVersion;
+  }
+  if (createSiteType === 'proxy') {
+    body.upstream_url = document.getElementById('site-upstream').value.trim();
+  }
+  if (createSiteType === 'wordpress') {
+    body.db_host = document.getElementById('wp-db-host').value.trim();
+    body.db_port = parseInt(document.getElementById('wp-db-port').value) || 3306;
+    body.db_root_user = document.getElementById('wp-root-user').value.trim();
+    body.db_root_pass = document.getElementById('wp-root-pass').value;
+    body.db_name = document.getElementById('wp-db-name').value.trim();
+    body.db_user = document.getElementById('wp-db-user').value.trim();
+    body.db_pass = document.getElementById('wp-db-pass').value;
+  }
+  if (createSslMode === 'letsencrypt') {
+    body.ssl_email = document.getElementById('ssl-email').value.trim();
+  }
+  if (createSslMode === 'custom') {
+    body.ssl_cert = document.getElementById('ssl-cert').value;
+    body.ssl_key = document.getElementById('ssl-key').value;
+  }
+  if (createSslMode === 'cloudflare') {
+    body.ssl_cert = document.getElementById('ssl-cf-cert').value;
+    body.ssl_key = document.getElementById('ssl-cf-key').value;
+  }
+  try {
+    const r = await fetch('/api/sites', {method:'POST', headers: hdr(), body: JSON.stringify(body)});
+    if (!r) return;
+    const d = await r.json();
+    if (d.ok) {
+      document.getElementById('done-domain').textContent = domain;
+      document.getElementById('done-info').textContent = 'Webroot: ' + (d.webroot || '/var/www/' + domain + '/public');
+      showWizardStep(5);
+    } else {
+      showWizardStep(3);
+      document.getElementById('step2-err').textContent = d.error || 'Creation failed';
+      document.getElementById('step2-err').style.display = '';
+      wizardStep(2);
+    }
+  } catch(e) {
+    showWizardStep(3);
+    wizardStep(2);
+    toast('Request failed: ' + e.message, 'err');
+  }
+}
+
 function init() {
   startStats();
   startLogs();
@@ -687,7 +1122,7 @@ function init() {
 
 // ── Navigation ─────────────────────────────────────────────────────────────────
 const PAGE_TITLES = {
-  dashboard: 'Dashboard', metrics: 'Live Metrics', vhosts: 'Virtual Hosts',
+  dashboard: 'Dashboard', metrics: 'Live Metrics', sites: 'Sites', vhosts: 'Virtual Hosts',
   users: 'Users', ssh: 'SSH & Access', upstreams: 'Upstreams',
   logs: 'Access Logs', settings: 'Settings'
 };
@@ -702,6 +1137,7 @@ function nav(page, el) {
   // On-demand loads
   if (page === 'metrics') loadMetrics();
   if (page === 'vhosts') loadVhosts();
+  if (page === 'sites') loadSites();
   if (page === 'users') loadUsers();
   if (page === 'upstreams') loadUpstreams();
   if (page === 'ssh') loadSshPanel();

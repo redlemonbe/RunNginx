@@ -1,3 +1,4 @@
+pub mod sites;
 // Management REST API.
 // Routes: GET /health (no auth), GET /api/stats, GET /api/system, POST /api/reload
 // Auth: Bearer token (constant-time comparison via subtle crate)
@@ -163,6 +164,30 @@ pub fn handle_api(
                 return Some(redirect_to_login());
             }
             Some(serve_webui())
+        }
+                "/api/sites" if method == "POST" => {
+            if !has_valid_session(headers, ctx) && !is_authorized(headers, &ctx.http.api_key) {
+                return Some(json_response(401, r#"{"error":"unauthorized"}"#));
+            }
+            Some(handle_create_site(body, ctx))
+        }
+        "/api/sites" if method == "GET" => {
+            if !has_valid_session(headers, ctx) && !is_authorized(headers, &ctx.http.api_key) {
+                return Some(json_response(401, r#"{"error":"unauthorized"}"#));
+            }
+            Some(sites_list(ctx))
+        }
+        p if p.starts_with("/api/sites/") => {
+            if !has_valid_session(headers, ctx) && !is_authorized(headers, &ctx.http.api_key) {
+                return Some(json_response(401, r#"{"error":"unauthorized"}"#));
+            }
+            Some(handle_sites_route(p, method, body, ctx))
+        }
+        "/api/php/versions" if method == "GET" => {
+            if !has_valid_session(headers, ctx) && !is_authorized(headers, &ctx.http.api_key) {
+                return Some(json_response(401, r#"{"error":"unauthorized"}"#));
+            }
+            Some(json_response(200, &sites::list_php_versions().to_string()))
         }
         p if p.starts_with("/api/") => {
             if !has_valid_session(headers, ctx) && !is_authorized(headers, &ctx.http.api_key) {
@@ -520,3 +545,75 @@ fn prometheus_metrics(ctx: &Arc<ApiContext>) -> Vec<u8> {
     r
 }
 
+
+// ── Sites management handlers ─────────────────────────────────────────────────
+
+fn sites_list(ctx: &Arc<ApiContext>) -> Vec<u8> {
+    let list = sites::list_sites(&ctx.config_path);
+    json_response(200, &list.to_string())
+}
+
+fn handle_sites_route(path: &str, method: &str, body: &[u8], ctx: &Arc<ApiContext>) -> Vec<u8> {
+    // DELETE /api/sites/{domain}
+    if method == "DELETE" && path.len() > "/api/sites/".len() {
+        let domain = &path["/api/sites/".len()..];
+        // ?delete_files=true to also remove webroot
+        let delete_files = false; // from query param — simplified
+        let result = sites::delete_site(domain, &ctx.config_path, delete_files);
+        if result["ok"].as_bool().unwrap_or(false) {
+            let _ = ctx.reload_tx.send(());
+        }
+        return json_response(if result.get("error").is_some() { 400 } else { 200 }, &result.to_string());
+    }
+
+    // POST /api/sites — create
+    if method == "POST" && path == "/api/sites" {
+        return handle_create_site(body, ctx);
+    }
+
+    json_response(404, r#"{"error":"not found"}"#)
+}
+
+fn handle_create_site(body: &[u8], ctx: &Arc<ApiContext>) -> Vec<u8> {
+    let v: serde_json::Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(_) => return json_response(400, r#"{"error":"Invalid JSON"}"#),
+    };
+
+    let domain = match v["domain"].as_str() {
+        Some(d) => d.to_string(),
+        None => return json_response(400, r#"{"error":"domain required"}"#),
+    };
+
+    let site_type = match v["type"].as_str().and_then(sites::SiteType::from_str) {
+        Some(t) => t,
+        None => return json_response(400, r#"{"error":"type must be static|php|wordpress|proxy"}"#),
+    };
+
+    let req = sites::SiteRequest {
+        domain,
+        site_type,
+        php_version:  v["php_version"].as_str().map(|s| s.to_string()),
+        upstream_url: v["upstream_url"].as_str().map(|s| s.to_string()),
+        db_host:      v["db_host"].as_str().map(|s| s.to_string()),
+        db_port:      v["db_port"].as_u64().map(|p| p as u16),
+        db_root_user: v["db_root_user"].as_str().map(|s| s.to_string()),
+        db_root_pass: v["db_root_pass"].as_str().map(|s| s.to_string()),
+        db_name:      v["db_name"].as_str().map(|s| s.to_string()),
+        db_user:      v["db_user"].as_str().map(|s| s.to_string()),
+        db_pass:      v["db_pass"].as_str().map(|s| s.to_string()),
+        ssl_mode:     sites::SslMode::from_str(v["ssl_mode"].as_str().unwrap_or("none")),
+        ssl_email:    v["ssl_email"].as_str().map(|s| s.to_string()),
+        ssl_cert:     v["ssl_cert"].as_str().map(|s| s.to_string()),
+        ssl_key:      v["ssl_key"].as_str().map(|s| s.to_string()),
+        cloudflare:   v["cloudflare"].as_bool().unwrap_or(false),
+    };
+
+    let result = sites::create_site(&req, &ctx.config_path);
+    if result["ok"].as_bool().unwrap_or(false) {
+        let _ = ctx.reload_tx.send(());
+        json_response(200, &result.to_string())
+    } else {
+        json_response(400, &result.to_string())
+    }
+}
