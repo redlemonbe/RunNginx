@@ -5,10 +5,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::api::{self, ApiContext};
+use crate::http::gzip::{GzipConfig, maybe_compress};
 use crate::config::types::{HttpBlock, LocationHandler, ReturnBody, ReturnDirective, ServerBlock};
 use crate::router;
 use crate::server::access_log::{LogEntry, Logger};
-use crate::server::static_files;
+use crate::server::static_files::{self, find_error_page_uri};
 use crate::simd::{parse_headers, parse_request_line, is_uri_safe, Header};
 use crate::stats::Stats;
 
@@ -143,7 +144,20 @@ async fn dispatch(
             return r;
         }
         Some(LocationHandler::Static) | None => {
-            static_files::serve_static(server, location, &req.path, &req.method, &req.headers).await
+            let mut resp = static_files::serve_static(server, location, &req.path, &req.method, &req.headers).await;
+            // Apply custom error page if configured.
+            if resp.status >= 400 {
+                if let Some(ep_uri) = find_error_page_uri(server, resp.status) {
+                    let ep_path = ep_uri.to_owned();
+                    let ep_resp = static_files::serve_static(server, None, &ep_path, "GET", &[]).await;
+                    if ep_resp.status == 200 {
+                        // Serve the error page with the original error status.
+                        resp.body    = ep_resp.body;
+                        resp.headers = ep_resp.headers;
+                    }
+                }
+            }
+            resp
         }
         Some(LocationHandler::Proxy(_)) => {
             static_files::not_implemented("proxy_pass not yet implemented")
@@ -153,9 +167,32 @@ async fn dispatch(
         }
     };
 
-    let status    = response.status;
-    let body_len  = response.body.len();
+    let status   = response.status;
 
+    // Apply gzip if configured and applicable.
+    let gzip_enabled = location.and_then(|l| l.gzip).unwrap_or(ctx.http.gzip);
+    let accept_enc = get_header(&req.headers, "accept-encoding");
+    let content_type = response.headers.iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+        .map(|(_, v)| v.as_str())
+        .unwrap_or("application/octet-stream");
+    let gz_cfg = GzipConfig {
+        enabled:    gzip_enabled,
+        min_length: ctx.http.gzip_min_length,
+        types:      ctx.http.gzip_types.clone(),
+    };
+    let (body, gzipped) = maybe_compress(response.body, content_type, accept_enc, &gz_cfg);
+
+    let mut hdrs = response.headers;
+    if gzipped {
+        hdrs.push(("Content-Encoding".to_owned(), "gzip".to_owned()));
+        // Update Content-Length to compressed size.
+        if let Some(pos) = hdrs.iter().position(|(k, _)| k.eq_ignore_ascii_case("content-length")) {
+            hdrs[pos] = ("Content-Length".to_owned(), body.len().to_string());
+        }
+    }
+
+    let body_len = body.len();
     ctx.logger.log(LogEntry {
         remote_addr:  peer,
         request_line: format!("{} {} HTTP/1.{}", req.method, req.path, if req.version_1_0 { "0" } else { "1" }),
@@ -165,7 +202,7 @@ async fn dispatch(
         user_agent:   get_header(&req.headers, "user-agent").unwrap_or("-").to_owned(),
     });
 
-    let bytes = format_response(status, &response.headers, keep_alive, &response.body);
+    let bytes = format_response(status, &hdrs, keep_alive, &body);
     HandlerResult { bytes, keep_alive, status }
 }
 

@@ -383,3 +383,11 @@ pub fn not_implemented(msg: &'static str) -> StaticResponse {
         body: body.into_bytes(),
     }
 }
+
+/// Resolve a custom error page URI from the server's error_pages config.
+/// Returns the URI to serve, or None if no custom page is configured.
+pub fn find_error_page_uri(server: &ServerBlock, status: u16) -> Option<&str> {
+    server.error_pages.iter()
+        .find(|ep| ep.codes.contains(&status))
+        .map(|ep| ep.uri.as_str())
+}
