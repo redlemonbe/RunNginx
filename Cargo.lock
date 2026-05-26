@@ -1123,7 +1123,7 @@ dependencies = [
 
 [[package]]
 name = "runnginx"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ahash",
  "anyhow",
@@ -1135,8 +1135,10 @@ dependencies = [
  "dashmap",
  "flate2",
  "glob",
+ "h2",
  "hex",
  "hmac",
+ "http",
  "httparse",
  "instant-acme",
  "lazy_static",

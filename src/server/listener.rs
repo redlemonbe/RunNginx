@@ -92,7 +92,15 @@ async fn handle_connection_tls(
     stream.set_nodelay(true)?;
     if let Some(cfg) = tls_cfg {
         let tls_stream = crate::tls::accept_tls(stream, cfg).await?;
-        handle_generic(tls_stream, peer, ctx).await
+        let is_h2 = {
+            let (_, session) = tls_stream.get_ref();
+            session.alpn_protocol() == Some(b"h2")
+        };
+        if is_h2 {
+            crate::http2::serve(tls_stream, peer, ctx).await
+        } else {
+            handle_generic(tls_stream, peer, ctx).await
+        }
     } else {
         handle_plain(stream, peer, ctx).await
     }

@@ -55,10 +55,11 @@ mod impl_tls {
         let key = rustls::pki_types::PrivateKeyDer::Pkcs8(keys.remove(0));
         let certs = certs.into_iter().map(rustls::pki_types::CertificateDer::from).collect::<Vec<_>>();
 
-        let config = ServerConfig::builder()
+        let mut config = ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(certs, key)
             .context("building TLS config")?;
+        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
         Ok(Arc::new(config))
     }

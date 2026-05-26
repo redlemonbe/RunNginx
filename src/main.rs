@@ -24,6 +24,7 @@ mod auth;
 mod cache;
 mod multiuser;
 mod stats;
+mod http2;
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
