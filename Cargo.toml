@@ -17,6 +17,7 @@ jemalloc    = ["tikv-jemallocator"]
 tls         = ["rustls", "rustls-pemfile", "tokio-rustls", "rcgen"]
 acme        = ["tls", "instant-acme"]
 xdp         = []
+brotli      = ["dep:brotli"]
 instant-acme = ["dep:instant-acme"]
 
 [dependencies]
@@ -43,7 +44,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Config / serialization
 serde        = { version = "1", features = ["derive"] }
 serde_json   = "1"
+toml         = { version = "0.8", features = ["preserve_order"] }
 regex        = "1"
+bcrypt       = "0.15"
+brotli       = { version = "6", optional = true }
 
 # Concurrency
 arc-swap     = "1"

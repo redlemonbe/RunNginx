@@ -132,6 +132,11 @@ async fn handle_plain(
         let keep_alive = result.keep_alive;
         stream.write_all(&result.bytes).await?;
         stream.flush().await?;
+        if let Some(mut upstream) = result.tunnel {
+            // WebSocket: splice until either side closes.
+            let _ = tokio::io::copy_bidirectional(&mut stream, &mut upstream).await;
+            break;
+        }
         if !keep_alive { break; }
     }
     Ok(())
@@ -175,6 +180,11 @@ where
         let keep_alive = result.keep_alive;
         stream.write_all(&result.bytes).await?;
         stream.flush().await?;
+        if let Some(mut upstream) = result.tunnel {
+            // WebSocket: splice streams. For TLS client, use copy_bidirectional on the TLS stream.
+            let _ = tokio::io::copy_bidirectional(&mut stream, &mut upstream).await;
+            break;
+        }
         if !keep_alive { break; }
     }
     Ok(())

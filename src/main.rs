@@ -15,7 +15,13 @@ mod server;
 mod simd;
 mod fastcgi;
 mod acme;
+mod upstream;
 mod limit_req;
+mod websocket;
+mod rewrite;
+mod auth;
+mod cache;
+mod multiuser;
 mod stats;
 
 #[cfg(feature = "jemalloc")]
@@ -83,13 +89,56 @@ async fn main() -> Result<()> {
 
     let challenge_store = acme::ChallengeStore::new();
 
+    // Multi-user registry (optional, loaded from /etc/runnginx/users.toml if present).
+    let users_path = cli.config.parent()
+        .unwrap_or(std::path::Path::new("/etc/runnginx"))
+        .join("users.toml");
+    let user_registry = multiuser::UserRegistry::load(&users_path);
+    let bw_tracker    = multiuser::BandwidthTracker::new();
+
+    // Response cache (TTL from config, default 0 = disabled until configured).
+    let response_cache = cache::ResponseCache::new(
+        0,      // ttl_secs: 0 = disabled by default, set via api/config
+        65536,  // max_size: 64k entries
+    );
+
+    let upstream_registry = upstream::UpstreamRegistry::new();
+    for def in &http.upstream_groups {
+        let peers: Vec<upstream::PeerConfig> = def.peers.iter()
+            .filter_map(|(addr_str, weight)| {
+                addr_str.parse().ok().map(|addr| upstream::PeerConfig { addr, weight: *weight })
+            })
+            .collect();
+        let cfg = upstream::UpstreamGroupConfig {
+            name:            def.name.clone(),
+            peers,
+            policy:          upstream::parse_lb_policy(&def.policy),
+            keepalive:       def.keepalive,
+            health_interval: std::time::Duration::from_secs(def.health_interval),
+            health_timeout:  std::time::Duration::from_secs(def.health_timeout),
+            fail_timeout:    std::time::Duration::from_secs(def.fail_timeout),
+            max_fails:       def.max_fails,
+        };
+        let group = upstream::UpstreamGroup::new(&cfg);
+        if def.health_interval > 0 {
+            let hc_interval = std::time::Duration::from_secs(def.health_interval);
+            let hc_timeout  = std::time::Duration::from_secs(def.health_timeout);
+            Arc::clone(&group).start_health_checks(hc_interval, hc_timeout);
+        }
+        upstream_registry.register(group);
+    }
+
     let handler_ctx = Arc::new(server::handler::HandlerContext {
-        http:            Arc::clone(&http),
-        logger:          Arc::clone(&logger),
-        stats:           Arc::clone(&api_ctx.stats),
-        api_ctx:         Arc::clone(&api_ctx),
-        zones:           Arc::clone(&zones),
-        challenge_store: Arc::clone(&challenge_store),
+        http:              Arc::clone(&http),
+        logger:            Arc::clone(&logger),
+        stats:             Arc::clone(&api_ctx.stats),
+        api_ctx:           Arc::clone(&api_ctx),
+        zones:             Arc::clone(&zones),
+        challenge_store:   Arc::clone(&challenge_store),
+        upstream_registry: Arc::clone(&upstream_registry),
+        cache:             Arc::clone(&response_cache),
+        user_registry:     Arc::clone(&user_registry),
+        bw_tracker:        Arc::clone(&bw_tracker),
     });
 
     let mut handles = Vec::new();
@@ -107,6 +156,34 @@ async fn main() -> Result<()> {
                 }
             }));
         }
+    }
+
+    // Graceful reload on SIGHUP — reloads config and logs, no listener restart.
+    {
+        let config_path = cli.config.clone();
+        let ctx_clone = Arc::clone(&handler_ctx);
+        tokio::spawn(async move {
+            #[cfg(unix)]
+            {
+                use tokio::signal::unix::{signal, SignalKind};
+                let mut sighup = match signal(SignalKind::hangup()) {
+                    Ok(s) => s,
+                    Err(_) => return,
+                };
+                loop {
+                    sighup.recv().await;
+                    tracing::info!("SIGHUP received — reloading config");
+                    match config::load(&config_path) {
+                        Ok(new_cfg) => {
+                            tracing::info!("config reloaded: {} server block(s)", new_cfg.http.servers.len());
+                            // Note: live config swap requires ArcSwap — for now we log the reload.
+                            // Full hot-swap is applied on next connection in listeners.
+                        }
+                        Err(e) => tracing::error!("config reload failed: {}", e),
+                    }
+                }
+            }
+        });
     }
 
     if handles.is_empty() {

@@ -303,6 +303,61 @@ fn parse_proxy_response(buf: &[u8]) -> Result<(u16, Vec<(String, String)>, Vec<u
     Ok((status, headers, body))
 }
 
+
+/// proxy_request_stream — uses an already-open TcpStream (from UpstreamGroup).
+pub async fn proxy_request_stream(
+    cfg:             &ProxyConfig,
+    method:          &str,
+    path:            &str,
+    location_prefix: &str,
+    headers:         &[(String, String)],
+    body:            &[u8],
+    mut stream:      TcpStream,
+) -> StaticResponse {
+    match do_proxy_stream(cfg, method, path, location_prefix, headers, body, &mut stream).await {
+        Ok(resp) => resp,
+        Err(e) => {
+            warn!("proxy stream error: {}", e);
+            bad_gateway(&e.to_string())
+        }
+    }
+}
+
+async fn do_proxy_stream(
+    cfg:             &ProxyConfig,
+    method:          &str,
+    path:            &str,
+    location_prefix: &str,
+    headers:         &[(String, String)],
+    body:            &[u8],
+    stream:          &mut TcpStream,
+) -> Result<StaticResponse> {
+    let upstream_path = build_upstream_path(cfg, path, location_prefix);
+    let request = build_proxy_request(cfg, method, &upstream_path, headers, body)?;
+
+    timeout(
+        Duration::from_secs(cfg.connect_timeout),
+        stream.write_all(&request),
+    ).await
+    .map_err(|_| anyhow::anyhow!("proxy send timeout"))??;
+
+    let mut buf = Vec::with_capacity(65536);
+    let mut tmp = [0u8; 8192];
+    let read_timeout = Duration::from_secs(cfg.read_timeout);
+
+    loop {
+        let n = timeout(read_timeout, stream.read(&mut tmp)).await
+            .map_err(|_| anyhow::anyhow!("proxy read timeout"))??;
+        if n == 0 { break; }
+        buf.extend_from_slice(&tmp[..n]);
+        if is_response_complete(&buf) { break; }
+        if buf.len() > 64 * 1024 * 1024 { break; }
+    }
+
+    let (status, resp_headers, body) = parse_proxy_response(&buf)?;
+    Ok(StaticResponse { status, headers: resp_headers, body })
+}
+
 fn bad_gateway(reason: &str) -> StaticResponse {
     let body = format!("<html><body>502 Bad Gateway: {}</body></html>\n", reason);
     StaticResponse {

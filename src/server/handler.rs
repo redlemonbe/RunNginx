@@ -33,7 +33,11 @@ pub struct HandlerContext {
     pub stats:   Arc<Stats>,
     pub api_ctx: Arc<ApiContext>,
     pub zones:          Arc<crate::limit_req::ZoneRegistry>,
-    pub challenge_store: Arc<crate::acme::ChallengeStore>,
+    pub challenge_store:    Arc<crate::acme::ChallengeStore>,
+    pub upstream_registry: Arc<crate::upstream::UpstreamRegistry>,
+    pub cache:             Arc<crate::cache::ResponseCache>,
+    pub user_registry:     Arc<crate::multiuser::UserRegistry>,
+    pub bw_tracker:        Arc<crate::multiuser::BandwidthTracker>,
 }
 
 pub async fn handle(
@@ -79,7 +83,7 @@ async fn dispatch(
     let (path, query) = if let Some(q) = full_uri.find('?') {
         (full_uri[..q].to_owned(), full_uri[q+1..].to_owned())
     } else {
-        (full_uri, String::new())
+        (full_uri.clone(), String::new())
     };
 
     let (raw_headers, headers_len) = match parse_headers(&raw[rl_len..]) {
@@ -113,6 +117,23 @@ async fn dispatch(
     };
 
     // Serve ACME HTTP-01 challenge tokens.
+    // Cache lookup (GET/HEAD only, respects Cache-Control).
+    if matches!(method.as_str(), "GET" | "HEAD") {
+        let skip = crate::cache::request_bypasses_cache(&headers);
+        if !skip {
+            let key = crate::cache::ResponseCache::cache_key(&host, &method, &full_uri);
+            if let Some(bytes) = ctx.cache.get(&key) {
+                ctx.stats.record_request(200, bytes.len() as u64, raw.len() as u64, std::time::Duration::ZERO);
+                return HandlerResult {
+                    bytes: bytes.as_ref().clone(),
+                    keep_alive: true,
+                    status: 200,
+                    tunnel: None,
+                };
+            }
+        }
+    }
+
     if let Some(stripped) = path.strip_prefix("/.well-known/acme-challenge/") {
         if let Some(key_auth) = ctx.challenge_store.get_key_auth(stripped) {
             let body = key_auth.into_bytes();
@@ -124,8 +145,26 @@ async fn dispatch(
                 bytes: format_response(200, &hdrs, false, &body),
                 keep_alive: false,
                 status: 200,
+                tunnel: None,
             };
         }
+    }
+
+    // Multi-user API (POST /api/users, GET /api/users/me, etc.)
+    let auth_header_val = get_header(&headers, "authorization")
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .map(|k| k.trim().to_owned())
+        .unwrap_or_default();
+    let is_admin = !ctx.http.api_key.is_empty() && auth_header_val == ctx.http.api_key;
+    if let Some(bytes) = crate::multiuser::handle_user_api(&path, &method, body_raw, &auth_header_val, &ctx.user_registry, is_admin) {
+        let status = extract_status_from_response(&bytes);
+        ctx.logger.log(LogEntry {
+            remote_addr: peer, request_line: format!("{} {} HTTP/1.1", method, path),
+            status, body_bytes: bytes.len(),
+            referer: get_header(&headers, "referer").unwrap_or("-").to_owned(),
+            user_agent: get_header(&headers, "user-agent").unwrap_or("-").to_owned(),
+        });
+        return HandlerResult { bytes, keep_alive: false, status, tunnel: None };
     }
 
     // Check if this is an API request before routing to server blocks.
@@ -139,10 +178,10 @@ async fn dispatch(
             referer:      get_header(&headers, "referer").unwrap_or("-").to_owned(),
             user_agent:   get_header(&headers, "user-agent").unwrap_or("-").to_owned(),
         });
-        return HandlerResult { bytes: api_bytes, keep_alive: false, status: 200 };
+        return HandlerResult { bytes: api_bytes, keep_alive: false, status: 200, tunnel: None };
     }
 
-    let req = ParsedRequest {
+    let mut req = ParsedRequest {
         method, path, _query: query, version_1_0, headers, host, content_len,
     };
 
@@ -151,7 +190,75 @@ async fn dispatch(
         .map(|s| Arc::new(s.clone()))
         .collect();
     let server   = router::select_server(&servers_arc, &req.host);
+
+    // Apply server-level rewrite rules.
+    let srv_rewrites = &server.rewrites;
+    if !srv_rewrites.is_empty() {
+        match crate::rewrite::apply_rewrites(srv_rewrites, &req.path) {
+            crate::rewrite::RewriteOutcome::Redirect { uri, status } => {
+                let r = HandlerResult {
+                    bytes: format_response(status, &[
+                        ("Location".to_owned(), uri),
+                        ("Content-Length".to_owned(), "0".to_owned()),
+                    ], keep_alive, &[]),
+                    keep_alive, status, tunnel: None,
+                };
+                log_request(&req, &r, peer, &ctx.logger);
+                return r;
+            }
+            crate::rewrite::RewriteOutcome::Rewritten { uri, .. } => {
+                req.path = uri;
+            }
+            crate::rewrite::RewriteOutcome::NoMatch => {}
+        }
+    }
+
     let location = router::select_location(server, &req.path);
+
+    // Apply location-level rewrite rules.
+    if let Some(loc) = location {
+        if !loc.rewrites.is_empty() {
+            match crate::rewrite::apply_rewrites(&loc.rewrites, &req.path) {
+                crate::rewrite::RewriteOutcome::Redirect { uri, status } => {
+                    let r = HandlerResult {
+                        bytes: format_response(status, &[
+                            ("Location".to_owned(), uri),
+                            ("Content-Length".to_owned(), "0".to_owned()),
+                        ], keep_alive, &[]),
+                        keep_alive, status, tunnel: None,
+                    };
+                    log_request(&req, &r, peer, &ctx.logger);
+                    return r;
+                }
+                crate::rewrite::RewriteOutcome::Rewritten { uri, .. } => {
+                    req.path = uri;
+                }
+                crate::rewrite::RewriteOutcome::NoMatch => {}
+            }
+        }
+    }
+
+    // Auth basic — location takes priority over server.
+    let auth_cfg = location.and_then(|l| l.auth_basic.as_ref())
+        .or(server.auth_basic.as_ref());
+    if let Some(ab) = auth_cfg {
+        let auth_header = get_header(&req.headers, "authorization");
+        let authorized = auth_header
+            .map(|h| crate::auth::check_basic_auth(&ab.user_file, h))
+            .unwrap_or(false);
+        if !authorized {
+            let bytes = crate::auth::unauthorized_response(&ab.realm);
+            let status = 401u16;
+            ctx.logger.log(LogEntry {
+                remote_addr: peer,
+                request_line: format!("{} {} HTTP/1.1", req.method, req.path),
+                status, body_bytes: bytes.len(),
+                referer: get_header(&req.headers, "referer").unwrap_or("-").to_owned(),
+                user_agent: get_header(&req.headers, "user-agent").unwrap_or("-").to_owned(),
+            });
+            return HandlerResult { bytes, keep_alive, status, tunnel: None };
+        }
+    }
 
     // Per-location rate limit (limit_req).
     let limit_ref = location
@@ -168,6 +275,7 @@ async fn dispatch(
                     ], false, b"429 Too Many Requests"),
                     keep_alive: false,
                     status: 429,
+                    tunnel: None,
                 };
                 log_request(&req, &r, peer, &ctx.logger);
                 return r;
@@ -188,6 +296,7 @@ async fn dispatch(
             ], keep_alive, b"413 Content Too Large"),
             keep_alive: false,
             status: 413,
+            tunnel: None,
         };
         log_request(&req, &r, peer, &ctx.logger);
         return r;
@@ -227,6 +336,40 @@ async fn dispatch(
             resp
         }
         Some(LocationHandler::Proxy(pc)) => {
+            // WebSocket upgrade — splice TCP streams instead of buffered proxy.
+            let is_ws_upgrade = req.headers.iter().any(|(k, v)|
+                k.eq_ignore_ascii_case("upgrade") && v.eq_ignore_ascii_case("websocket")
+            );
+            if is_ws_upgrade {
+                let host = pc.upstream.host_str().unwrap_or("127.0.0.1");
+                let port = pc.upstream.port_or_known_default().unwrap_or(80);
+                let addr = format!("{}:{}", host, port);
+                let ct = std::time::Duration::from_secs(pc.connect_timeout);
+                let rt = std::time::Duration::from_secs(pc.read_timeout);
+                match crate::websocket::upgrade_to_websocket(&addr, ct, rt, &req.method, &req.path, &req.headers).await {
+                    Ok((resp_bytes, upstream)) => {
+                        let status = 101u16;
+                        ctx.logger.log(crate::server::access_log::LogEntry {
+                            remote_addr: peer,
+                            request_line: format!("{} {} HTTP/1.1", req.method, req.path),
+                            status,
+                            body_bytes: 0,
+                            referer: get_header(&req.headers, "referer").unwrap_or("-").to_owned(),
+                            user_agent: get_header(&req.headers, "user-agent").unwrap_or("-").to_owned(),
+                        });
+                        return HandlerResult { bytes: resp_bytes, keep_alive: false, status, tunnel: Some(upstream) };
+                    }
+                    Err(e) => {
+                        tracing::warn!("websocket upgrade failed: {}", e);
+                        return HandlerResult {
+                            bytes: format_response(502, &[("Content-Length".to_owned(),"0".to_owned())], false, &[]),
+                            keep_alive: false,
+                            status: 502,
+                            tunnel: None,
+                        };
+                    }
+                }
+            }
             let prefix = match location.map(|l| &l.pattern) {
                 Some(crate::config::types::LocationPattern::Prefix(p)) => p.as_str(),
                 Some(crate::config::types::LocationPattern::PrefixNoRegex(p)) => p.as_str(),
@@ -240,6 +383,41 @@ async fn dispatch(
                 &req.headers,
                 &[],
             ).await
+        }
+        Some(LocationHandler::UpstreamGroup(group_name)) => {
+            match ctx.upstream_registry.get(group_name) {
+                Some(group) => {
+                    let connect_to = std::time::Duration::from_secs(10);
+                    match group.connect(connect_to, Some(peer.ip())).await {
+                        Ok((stream, peer_addr)) => {
+                            let prefix = match location.map(|l| &l.pattern) {
+                                Some(crate::config::types::LocationPattern::Prefix(p)) => p.as_str(),
+                                Some(crate::config::types::LocationPattern::PrefixNoRegex(p)) => p.as_str(),
+                                _ => "",
+                            };
+                            let pc = crate::config::types::ProxyConfig {
+                                upstream: url::Url::parse(&format!("http://{}", peer_addr)).unwrap(),
+                                set_headers: Vec::new(),
+                                read_timeout: 60,
+                                connect_timeout: 10,
+                                buffering: true,
+                                http2: false,
+                                allow_internal: true,
+                            };
+                            let resp = crate::proxy::proxy_request_stream(
+                                &pc, &req.method, &req.path, prefix, &req.headers, body_raw, stream
+                            ).await;
+                            group.release(peer_addr);
+                            resp
+                        }
+                        Err(e) => {
+                            tracing::warn!("upstream {}: {}", group_name, e);
+                            crate::server::static_files::not_implemented("502 upstream unavailable")
+                        }
+                    }
+                }
+                None => crate::server::static_files::not_implemented("upstream group not found"),
+            }
         }
         Some(LocationHandler::FastCgi(fc)) => {
             let root = location
@@ -274,10 +452,26 @@ async fn dispatch(
     };
     let (body, gzipped) = maybe_compress(response.body, content_type, accept_enc, &gz_cfg);
 
+    // Apply brotli if gzip was not applied (prefer br over gzip when client accepts both).
+    let br_cfg = crate::http::brotli::BrotliConfig {
+        enabled:    ctx.http.brotli,
+        min_length: ctx.http.brotli_min_length,
+        types:      ctx.http.brotli_types.clone(),
+    };
+    let (body, brotli_used) = if !gzipped {
+        crate::http::brotli::maybe_brotli(body, content_type, accept_enc, &br_cfg)
+    } else {
+        (body, false)
+    };
+
     let mut hdrs = response.headers;
     if gzipped {
         hdrs.push(("Content-Encoding".to_owned(), "gzip".to_owned()));
-        // Update Content-Length to compressed size.
+        if let Some(pos) = hdrs.iter().position(|(k, _)| k.eq_ignore_ascii_case("content-length")) {
+            hdrs[pos] = ("Content-Length".to_owned(), body.len().to_string());
+        }
+    } else if brotli_used {
+        hdrs.push(("Content-Encoding".to_owned(), "br".to_owned()));
         if let Some(pos) = hdrs.iter().position(|(k, _)| k.eq_ignore_ascii_case("content-length")) {
             hdrs[pos] = ("Content-Length".to_owned(), body.len().to_string());
         }
@@ -294,7 +488,16 @@ async fn dispatch(
     });
 
     let bytes = format_response(status, &hdrs, keep_alive, &body);
-    HandlerResult { bytes, keep_alive, status }
+
+    // Store cacheable responses.
+    if crate::cache::is_cacheable(&req.method, status, &hdrs) {
+        if !crate::cache::request_bypasses_cache(&req.headers) {
+            let key = crate::cache::ResponseCache::cache_key(&req.host, &req.method, &req.path);
+            ctx.cache.put(key, bytes.clone(), status);
+        }
+    }
+
+    HandlerResult { bytes, keep_alive, status, tunnel: None }
 }
 
 // ── Return directive ──────────────────────────────────────────────────────────
@@ -310,7 +513,7 @@ fn handle_return(rd: &ReturnDirective, keep_alive: bool) -> HandlerResult {
     if let Some(loc) = location_hdr { hdrs.push(("Location".to_owned(), loc)); }
     if !body.is_empty() { hdrs.push(("Content-Type".to_owned(), "text/plain".to_owned())); }
     let bytes = format_response(rd.status, &hdrs, keep_alive, &body);
-    HandlerResult { bytes, keep_alive, status: rd.status }
+    HandlerResult { bytes, keep_alive, status: rd.status, tunnel: None }
 }
 
 // ── Response serialization ────────────────────────────────────────────────────
@@ -351,6 +554,8 @@ pub struct HandlerResult {
     pub bytes:      Vec<u8>,
     pub keep_alive: bool,
     pub status:     u16,
+    /// WebSocket tunnel: if Some, listener should splice streams after writing bytes.
+    pub tunnel:     Option<tokio::net::TcpStream>,
 }
 
 impl HandlerResult {
@@ -364,6 +569,7 @@ impl HandlerResult {
             bytes: format_response(400, &hdrs, keep_alive, body.as_bytes()),
             keep_alive,
             status: 400,
+            tunnel: None,
         }
     }
 }

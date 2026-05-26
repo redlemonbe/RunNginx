@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RunNginx</title>
+<style>
+:root{--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--border:#30363d;--text:#c9d1d9;--text2:#8b949e;--accent:#58a6ff;--accent2:#1f6feb;--green:#3fb950;--red:#f85149;--yellow:#d29922;--orange:#e3b341;--purple:#a371f7;font-size:14px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;min-height:100vh;display:flex}
+.sidebar{width:240px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;height:100vh;z-index:100}
+.logo{padding:20px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.logo svg{width:28px;height:28px;fill:var(--accent)}
+.logo-text{font-size:16px;font-weight:700;color:var(--text)}
+.logo-ver{font-size:11px;color:var(--text2);margin-left:auto}
+nav{flex:1;padding:8px 0;overflow-y:auto}
+nav a{display:flex;align-items:center;gap:10px;padding:8px 16px;color:var(--text2);text-decoration:none;transition:all .15s;font-size:13px;border-left:2px solid transparent}
+nav a:hover{background:var(--bg3);color:var(--text)}
+nav a.active{background:var(--bg3);color:var(--accent);border-left-color:var(--accent)}
+nav a svg{width:16px;height:16px;flex-shrink:0}
+.nav-section{padding:12px 16px 4px;font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em}
+.sidebar-footer{padding:12px 16px;border-top:1px solid var(--border);font-size:11px;color:var(--text2)}
+.main{margin-left:240px;flex:1;min-height:100vh}
+.topbar{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+.topbar-title{font-size:16px;font-weight:600}
+.topbar-actions{display:flex;gap:8px;align-items:center}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600}
+.badge-green{background:rgba(63,185,80,.15);color:var(--green)}
+.badge-red{background:rgba(248,81,73,.15);color:var(--red)}
+.badge-yellow{background:rgba(210,153,34,.15);color:var(--yellow)}
+.badge-blue{background:rgba(88,166,255,.15);color:var(--accent)}
+.content{padding:24px;max-width:1400px}
+.page{display:none}.page.active{display:block}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;margin-bottom:24px}
+.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px}
+.stat-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.stat-value{font-size:24px;font-weight:700;color:var(--text)}
+.stat-sub{font-size:11px;color:var(--text2);margin-top:4px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:16px}
+.card-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.card-title{font-size:14px;font-weight:600}
+.card-body{padding:16px}
+table{width:100%;border-collapse:collapse}
+th{padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)}
+td{padding:10px 12px;font-size:13px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(255,255,255,.02)}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;border:1px solid transparent;text-decoration:none}
+.btn-primary{background:var(--accent2);color:#fff;border-color:var(--accent2)}
+.btn-primary:hover{background:#388bfd}
+.btn-danger{background:transparent;color:var(--red);border-color:var(--red)}
+.btn-danger:hover{background:rgba(248,81,73,.1)}
+.btn-secondary{background:var(--bg3);color:var(--text);border-color:var(--border)}
+.btn-secondary:hover{background:rgba(255,255,255,.05)}
+.btn-sm{padding:3px 10px;font-size:12px}
+.input{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-size:13px;width:100%;outline:none;transition:border-color .15s}
+.input:focus{border-color:var(--accent)}
+.input::placeholder{color:var(--text2)}
+.form-group{margin-bottom:14px}
+.form-label{display:block;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:4px}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:10px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto}
+.modal-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.modal-header h3{font-size:15px;font-weight:600}
+.modal-close{background:none;border:none;color:var(--text2);cursor:pointer;font-size:20px;line-height:1}
+.modal-body{padding:20px}
+.modal-footer{padding:12px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px}
+.api-key{font-family:monospace;font-size:12px;background:var(--bg3);padding:8px 12px;border-radius:6px;border:1px solid var(--border);word-break:break-all;color:var(--orange)}
+.log-line{font-family:monospace;font-size:12px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.03);white-space:pre-wrap;word-break:break-all}
+.log-2xx{color:var(--green)}.log-3xx{color:var(--accent)}.log-4xx{color:var(--yellow)}.log-5xx{color:var(--red)}
+.chart-bar{height:4px;background:var(--accent);border-radius:2px;margin-bottom:1px;transition:width .3s}
+#toast{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px}
+.toast{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 16px;font-size:13px;animation:slideIn .2s ease;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.toast-success{border-left:3px solid var(--green);color:var(--green)}
+.toast-error{border-left:3px solid var(--red);color:var(--red)}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:none;opacity:1}}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+.dot-green{background:var(--green)}.dot-red{background:var(--red)}.dot-yellow{background:var(--yellow)}
+.tag{display:inline-block;padding:1px 8px;border-radius:12px;font-size:11px;font-weight:500;margin:1px;background:var(--bg3);border:1px solid var(--border);color:var(--text2)}
+#api-key-modal-key{cursor:pointer}
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <div class="logo">
+    <svg viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+    <span class="logo-text">RunNginx</span>
+    <span class="logo-ver" id="ver">v0.1</span>
+  </div>
+  <nav>
+    <div class="nav-section">Overview</div>
+    <a href="#" class="active" onclick="showPage('dashboard',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Dashboard
+    </a>
+    <a href="#" onclick="showPage('metrics',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Metrics
+    </a>
+    <div class="nav-section">Config</div>
+    <a href="#" onclick="showPage('servers',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>Servers
+    </a>
+    <a href="#" onclick="showPage('upstreams',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>Upstreams
+    </a>
+    <div class="nav-section">Hosting</div>
+    <a href="#" onclick="showPage('users',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Users
+    </a>
+    <div class="nav-section">System</div>
+    <a href="#" onclick="showPage('logs',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>Logs
+    </a>
+    <a href="#" onclick="showPage('settings',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <span id="srv-status"><span class="dot dot-green"></span>Running</span>
+  </div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title" id="page-title">Dashboard</div>
+    <div class="topbar-actions">
+      <span class="badge badge-green" id="uptime-badge">Uptime —</span>
+      <button class="btn btn-secondary btn-sm" onclick="reload()">↺ Reload Config</button>
+    </div>
+  </div>
+  <div class="content">
+
+    <!-- Dashboard -->
+    <div id="page-dashboard" class="page active">
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-label">Requests Total</div><div class="stat-value" id="s-total">—</div><div class="stat-sub" id="s-rps">— req/s</div></div>
+        <div class="stat-card"><div class="stat-label">Active Connections</div><div class="stat-value" id="s-active">—</div></div>
+        <div class="stat-card"><div class="stat-label">Bytes Sent</div><div class="stat-value" id="s-bytes">—</div></div>
+        <div class="stat-card"><div class="stat-label">p99 Latency</div><div class="stat-value" id="s-p99">—</div></div>
+        <div class="stat-card"><div class="stat-label">2xx Responses</div><div class="stat-value" id="s-2xx" style="color:var(--green)">—</div></div>
+        <div class="stat-card"><div class="stat-label">4xx Errors</div><div class="stat-value" id="s-4xx" style="color:var(--yellow)">—</div></div>
+        <div class="stat-card"><div class="stat-label">5xx Errors</div><div class="stat-value" id="s-5xx" style="color:var(--red)">—</div></div>
+        <div class="stat-card"><div class="stat-label">p50 Latency</div><div class="stat-value" id="s-p50">—</div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Request Rate (last 60s)</span></div>
+        <div class="card-body" id="rps-chart" style="height:80px;display:flex;align-items:flex-end;gap:2px"></div>
+      </div>
+    </div>
+
+    <!-- Metrics (Prometheus text) -->
+    <div id="page-metrics" class="page">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Prometheus Metrics</span>
+          <a href="/metrics" target="_blank" class="btn btn-secondary btn-sm">Open Raw</a>
+        </div>
+        <div class="card-body">
+          <pre id="metrics-raw" style="font-size:11px;color:var(--text2);max-height:600px;overflow:auto;white-space:pre-wrap"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Servers -->
+    <div id="page-servers" class="page">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Server Blocks</span>
+          <span class="badge badge-blue" id="srv-count">Loading…</span>
+        </div>
+        <div class="card-body">
+          <pre id="servers-raw" style="font-size:12px;color:var(--text2);max-height:600px;overflow:auto;white-space:pre-wrap">Loading…</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upstreams -->
+    <div id="page-upstreams" class="page">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Upstream Groups</span></div>
+        <div class="card-body"><div id="upstreams-body">Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- Users -->
+    <div id="page-users" class="page">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Hosting Users</span>
+          <button class="btn btn-primary btn-sm" onclick="openCreateUser()">+ Add User</button>
+        </div>
+        <div class="card-body">
+          <table>
+            <thead><tr><th>Username</th><th>Domains</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="users-table"><tr><td colspan="4" style="color:var(--text2);text-align:center">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Logs -->
+    <div id="page-logs" class="page">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Access Log (live)</span>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)">
+            <input type="checkbox" id="log-follow" checked> Auto-scroll
+          </label>
+        </div>
+        <div class="card-body" style="max-height:600px;overflow-y:auto;background:var(--bg)" id="log-container">
+          <div id="log-lines" style="padding:8px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div id="page-settings" class="page">
+      <div class="card">
+        <div class="card-header"><span class="card-title">API Key</span></div>
+        <div class="card-body">
+          <p style="color:var(--text2);font-size:13px;margin-bottom:10px">Stored in <code>nginx.conf</code> as <code>api_key</code>. Keep secret.</p>
+          <div class="api-key" id="settings-api-key">—</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">System Info</span></div>
+        <div class="card-body">
+          <table><tbody id="sysinfo-table"></tbody></table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create User Modal -->
+<div class="modal-overlay" id="create-user-modal">
+  <div class="modal">
+    <div class="modal-header"><h3>Add Hosting User</h3><button class="modal-close" onclick="closeModal('create-user-modal')">×</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label class="form-label">Username</label><input class="input" id="new-username" placeholder="alice"></div>
+      <div class="form-group"><label class="form-label">Domains (comma-separated)</label><input class="input" id="new-domains" placeholder="example.com, www.example.com"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('create-user-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="createUser()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- API Key Result Modal -->
+<div class="modal-overlay" id="api-key-modal">
+  <div class="modal">
+    <div class="modal-header"><h3>User Created</h3><button class="modal-close" onclick="closeModal('api-key-modal')">×</button></div>
+    <div class="modal-body">
+      <p style="color:var(--text2);margin-bottom:12px;font-size:13px">Save the API key — it won't be shown again.</p>
+      <div class="api-key" id="api-key-modal-key" title="Click to copy"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal('api-key-modal')">Done</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API = '';  // same origin
+let apiKey = localStorage.getItem('runnginx_key') || '';
+let prevTotal = 0, rpsHistory = new Array(60).fill(0), rpsIdx = 0;
+
+function hdr() { return apiKey ? {'Authorization':'Bearer '+apiKey} : {}; }
+function fmt(n){if(n===undefined||n===null)return'—';n=Number(n);if(n>=1e9)return(n/1e9).toFixed(1)+'G';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return String(n);}
+function fmtBytes(b){b=Number(b);if(b>=1<<30)return(b/(1<<30)).toFixed(1)+' GB';if(b>=1<<20)return(b/(1<<20)).toFixed(1)+' MB';if(b>=1<<10)return(b/(1<<10)).toFixed(1)+' KB';return b+' B';}
+function fmtMs(sec){if(sec<0.001)return(sec*1e6).toFixed(0)+'µs';if(sec<1)return(sec*1000).toFixed(1)+'ms';return sec.toFixed(2)+'s';}
+function fmtUptime(s){const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d>0?d+'d '+h+'h':h>0?h+'h '+m+'m':m+'m';}
+
+function toast(msg,type='success'){
+  const t=document.createElement('div');
+  t.className='toast toast-'+type;t.textContent=msg;
+  document.getElementById('toast').appendChild(t);
+  setTimeout(()=>t.remove(),3000);
+}
+
+function showPage(id,el){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  if(el)el.classList.add('active');
+  document.getElementById('page-title').textContent=el?el.textContent.trim():id;
+  if(id==='metrics')loadMetrics();
+  if(id==='servers')loadServers();
+  if(id==='upstreams')loadUpstreams();
+  if(id==='users')loadUsers();
+  if(id==='logs')startLogs();
+  if(id==='settings')loadSettings();
+  return false;
+}
+
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+
+async function fetchStats(){
+  try{
+    const r=await fetch(API+'/api/stats',{headers:hdr()});
+    if(r.status===401){document.getElementById('s-total').textContent='Auth?';return;}
+    const d=await r.json();
+    document.getElementById('s-total').textContent=fmt(d.requests_total);
+    document.getElementById('s-active').textContent=fmt(d.active_connections);
+    document.getElementById('s-bytes').textContent=fmtBytes(d.bytes_sent);
+    document.getElementById('s-p99').textContent=fmtMs(d.p99_s||0);
+    document.getElementById('s-p50').textContent=fmtMs(d.p50_s||0);
+    document.getElementById('s-2xx').textContent=fmt(d.status_2xx);
+    document.getElementById('s-4xx').textContent=fmt(d.status_4xx);
+    document.getElementById('s-5xx').textContent=fmt(d.status_5xx);
+    document.getElementById('uptime-badge').textContent='Up '+fmtUptime(d.uptime_seconds||0);
+    const cur=Number(d.requests_total)||0;
+    const rps=cur-prevTotal;prevTotal=cur;
+    rpsHistory[rpsIdx%60]=rps;rpsIdx++;
+    document.getElementById('s-rps').textContent=rps+' req/s';
+    updateChart();
+    document.getElementById('ver').textContent=d.version||'v?';
+  }catch(e){console.warn('stats',e);}
+}
+
+function updateChart(){
+  const c=document.getElementById('rps-chart');c.innerHTML='';
+  const max=Math.max(...rpsHistory,1);
+  rpsHistory.forEach(v=>{
+    const b=document.createElement('div');
+    b.className='chart-bar';b.style.width='calc((100% - '+59*2+'px)/60)';
+    b.style.height=Math.max(4,(v/max)*76)+'px';
+    c.appendChild(b);
+  });
+}
+
+async function loadMetrics(){
+  try{
+    const r=await fetch(API+'/metrics');
+    document.getElementById('metrics-raw').textContent=await r.text();
+  }catch(e){document.getElementById('metrics-raw').textContent='Error: '+e;}
+}
+
+async function loadServers(){
+  try{
+    const r=await fetch(API+'/api/system',{headers:hdr()});
+    const d=await r.json();
+    document.getElementById('ver').textContent=d.version||'v?';
+    const cnt=d.servers||0;
+    document.getElementById('srv-count').textContent=cnt+' server'+(cnt!==1?'s':'');
+    document.getElementById('servers-raw').textContent=JSON.stringify(d,null,2);
+  }catch(e){document.getElementById('servers-raw').textContent='Error: '+e;}
+}
+
+async function loadUpstreams(){
+  const el=document.getElementById('upstreams-body');
+  try{
+    const r=await fetch(API+'/api/system',{headers:hdr()});
+    const d=await r.json();
+    const groups=d.upstream_groups||[];
+    if(!groups.length){el.innerHTML='<p style="color:var(--text2)">No upstream groups configured.</p>';return;}
+    el.innerHTML='<table><thead><tr><th>Name</th><th>Policy</th><th>Peers</th><th>Health</th></tr></thead><tbody>'+
+      groups.map(g=>`<tr><td>${g.name}</td><td>${g.policy||'round_robin'}</td><td>${(g.peers||[]).join(', ')}</td><td>${g.health_interval>0?g.health_interval+'s':'off'}</td></tr>`).join('')+
+      '</tbody></table>';
+  }catch(e){el.textContent='Error: '+e;}
+}
+
+async function loadUsers(){
+  const tb=document.getElementById('users-table');
+  try{
+    const r=await fetch(API+'/api/users',{headers:hdr()});
+    if(r.status===401){tb.innerHTML='<tr><td colspan="4" style="color:var(--text2)">Requires admin API key</td></tr>';return;}
+    const d=await r.json();
+    const users=d.users||[];
+    if(!users.length){tb.innerHTML='<tr><td colspan="4" style="color:var(--text2);text-align:center">No users yet. Click "+ Add User".</td></tr>';return;}
+    tb.innerHTML=users.map(u=>`<tr>
+      <td><strong>${u.username}</strong></td>
+      <td>${(u.domains||[]).map(d=>'<span class="tag">'+d+'</span>').join('')}</td>
+      <td><span class="badge ${u.enabled?'badge-green':'badge-red'}">${u.enabled?'Active':'Disabled'}</span></td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}')">Delete</button></td>
+    </tr>`).join('');
+  }catch(e){tb.innerHTML='<tr><td colspan="4">Error: '+e+'</td></tr>';}
+}
+
+async function deleteUser(id){
+  if(!confirm('Delete this user?'))return;
+  await fetch(API+'/api/users/'+id,{method:'DELETE',headers:hdr()});
+  toast('User deleted');loadUsers();
+}
+
+function openCreateUser(){openModal('create-user-modal');document.getElementById('new-username').focus();}
+async function createUser(){
+  const username=document.getElementById('new-username').value.trim();
+  const domains=document.getElementById('new-domains').value.split(',').map(d=>d.trim()).filter(Boolean);
+  if(!username)return toast('Username required','error');
+  const r=await fetch(API+'/api/users',{method:'POST',headers:{...hdr(),'Content-Type':'application/json'},body:JSON.stringify({username,domains})});
+  const d=await r.json();
+  if(d.error)return toast(d.error,'error');
+  closeModal('create-user-modal');
+  document.getElementById('api-key-modal-key').textContent=d.api_key;
+  document.getElementById('api-key-modal-key').onclick=()=>{navigator.clipboard.writeText(d.api_key);toast('Copied!');};
+  openModal('api-key-modal');
+  loadUsers();
+}
+
+let logTimer=null;
+function startLogs(){
+  if(logTimer)return;
+  logTimer=setInterval(appendLogLine,2000);
+}
+function appendLogLine(){
+  // Simulated live log — in production, wire to SSE or poll /api/logs.
+  const lines=document.getElementById('log-lines');
+  if(document.getElementById('log-follow').checked){
+    document.getElementById('log-container').scrollTop=99999;
+  }
+}
+
+async function loadSettings(){
+  const r=await fetch(API+'/api/system',{headers:hdr()});
+  const d=await r.json();
+  document.getElementById('settings-api-key').textContent=apiKey||'(enter key in browser localStorage: runnginx_key)';
+  const tb=document.getElementById('sysinfo-table');
+  tb.innerHTML=[
+    ['Version',d.version||'—'],
+    ['Uptime',fmtUptime(d.uptime_seconds||0)],
+    ['Servers',d.servers||0],
+    ['Workers','tokio async (unlimited)'],
+  ].map(([k,v])=>`<tr><td style="color:var(--text2);width:40%">${k}</td><td>${v}</td></tr>`).join('');
+}
+
+async function reload(){
+  const r=await fetch(API+'/api/reload',{method:'POST',headers:hdr()});
+  if(r.ok)toast('Config reloaded');else toast('Reload failed','error');
+}
+
+setInterval(fetchStats,2000);fetchStats();
+apiKey=prompt('API key (blank for read-only):','') || '';
+if(apiKey)localStorage.setItem('runnginx_key',apiKey);
+</script>
+</body>
+</html>

@@ -28,6 +28,24 @@ pub struct ApiContext {
 
 /// Returns Some(response_bytes) if the path is an API route, None otherwise.
 /// If Some, the caller should not route to static/proxy handlers.
+const WEBUI_HTML: &str = include_str!("webui.html");
+
+fn serve_webui() -> Vec<u8> {
+    let body = WEBUI_HTML.as_bytes();
+    let mut r = format!(
+        "HTTP/1.1 200 OK
+Content-Type: text/html; charset=utf-8
+Content-Length: {}
+Cache-Control: no-cache
+Connection: keep-alive
+
+",
+        body.len()
+    ).into_bytes();
+    r.extend_from_slice(body);
+    r
+}
+
 pub fn handle_api(
     path:    &str,
     method:  &str,
@@ -36,7 +54,9 @@ pub fn handle_api(
     ctx:     &Arc<ApiContext>,
 ) -> Option<Vec<u8>> {
     match path {
-        "/health" => Some(health_response()),
+        "/health"  => Some(health_response()),
+        "/metrics" => Some(prometheus_metrics(ctx)),
+        "/ui" | "/ui/" => Some(serve_webui()),
         p if p.starts_with("/api/") => Some(handle_api_authenticated(p, method, headers, peer_ip, ctx)),
         _ => None,
     }
@@ -102,8 +122,12 @@ fn api_stats(ctx: &Arc<ApiContext>) -> Vec<u8> {
     let s5xx  = s.status_5xx.load(std::sync::atomic::Ordering::Relaxed);
     let (p50, p90, p99, p999) = s.latency_percentiles();
 
+    let uptime = s.start.elapsed().as_secs();
+    let p50_s = p50 as f64 / 1_000_000.0;
+    let p99_s = p99 as f64 / 1_000_000.0;
+    let version = env!("CARGO_PKG_VERSION");
     let body = format!(
-        r#"{{"requests_total":{reqs},"bytes_sent":{sent},"bytes_received":{recv},"active_connections":{active},"status":{{"2xx":{s2xx},"3xx":{s3xx},"4xx":{s4xx},"5xx":{s5xx}}},"latency_us":{{"p50":{p50},"p90":{p90},"p99":{p99},"p99.9":{p999}}}}}"#
+        r#"{{"version":"{version}","requests_total":{reqs},"bytes_sent":{sent},"bytes_received":{recv},"active_connections":{active},"status_2xx":{s2xx},"status_3xx":{s3xx},"status_4xx":{s4xx},"status_5xx":{s5xx},"latency_us":{{"p50":{p50},"p90":{p90},"p99":{p99},"p99.9":{p999}}},"p50_s":{p50_s:.6},"p99_s":{p99_s:.6},"uptime_seconds":{uptime}}}"#
     );
     json_response(200, &body)
 }
@@ -113,10 +137,20 @@ fn api_system(ctx: &Arc<ApiContext>) -> Vec<u8> {
     let config_path = ctx.config_path.display().to_string();
     let servers = ctx.http.servers.len();
     let version = env!("CARGO_PKG_VERSION");
+    let simd = crate::simd::simd_level();
+
+    // Build upstream groups list.
+    let upstream_groups: Vec<String> = ctx.http.upstream_groups.iter().map(|g| {
+        let peers: Vec<String> = g.peers.iter().map(|(a, _)| {
+            let mut s = String::new(); s.push('"'); s.push_str(a); s.push('"'); s
+        }).collect();
+        format!(r#"{{"name":"{}","policy":"{}","peers":[{}],"health_interval":{}}}"#,
+            g.name, g.policy, peers.join(","), g.health_interval)
+    }).collect();
 
     let body = format!(
-        r#"{{"version":"{version}","uptime_s":{uptime_s},"config":"{config_path}","server_blocks":{servers},"simd":"{simd:?}"}}"#,
-        simd = crate::simd::simd_level()
+        r#"{{"version":"{version}","uptime_s":{uptime_s},"uptime_seconds":{uptime_s},"config":"{config_path}","servers":{servers},"server_blocks":{servers},"simd":"{simd:?}","upstream_groups":[{ug}]}}"#,
+        ug = upstream_groups.join(",")
     );
     json_response(200, &body)
 }
@@ -140,3 +174,71 @@ fn json_response(status: u16, body: &str) -> Vec<u8> {
         body
     ).into_bytes()
 }
+
+// ── Prometheus metrics ────────────────────────────────────────────────────────
+
+fn prometheus_metrics(ctx: &Arc<ApiContext>) -> Vec<u8> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let s = &ctx.stats;
+    let uptime = s.start.elapsed().as_secs();
+    let (p50, p90, p99, _) = s.latency_percentiles();
+    let total = s.requests_total.load(Relaxed);
+
+    let mut body = String::with_capacity(4096);
+
+    body.push_str("# HELP runnginx_requests_total Total HTTP requests\n");
+    body.push_str("# TYPE runnginx_requests_total counter\n");
+    body.push_str(&format!("runnginx_requests_total {}\n", total));
+
+    body.push_str("# HELP runnginx_active_connections Active connections\n");
+    body.push_str("# TYPE runnginx_active_connections gauge\n");
+    body.push_str(&format!("runnginx_active_connections {}\n", s.active.load(Relaxed)));
+
+    body.push_str("# HELP runnginx_bytes_sent_total Bytes sent\n");
+    body.push_str("# TYPE runnginx_bytes_sent_total counter\n");
+    body.push_str(&format!("runnginx_bytes_sent_total {}\n", s.bytes_sent.load(Relaxed)));
+
+    body.push_str("# HELP runnginx_bytes_received_total Bytes received\n");
+    body.push_str("# TYPE runnginx_bytes_received_total counter\n");
+    body.push_str(&format!("runnginx_bytes_received_total {}\n", s.bytes_received.load(Relaxed)));
+
+    body.push_str("# HELP runnginx_status_total Requests by HTTP status class\n");
+    body.push_str("# TYPE runnginx_status_total counter\n");
+    body.push_str(&format!("runnginx_status_total{{class=\"2xx\"}} {}\n", s.status_2xx.load(Relaxed)));
+    body.push_str(&format!("runnginx_status_total{{class=\"3xx\"}} {}\n", s.status_3xx.load(Relaxed)));
+    body.push_str(&format!("runnginx_status_total{{class=\"4xx\"}} {}\n", s.status_4xx.load(Relaxed)));
+    body.push_str(&format!("runnginx_status_total{{class=\"5xx\"}} {}\n", s.status_5xx.load(Relaxed)));
+
+    body.push_str("# HELP runnginx_uptime_seconds Process uptime\n");
+    body.push_str("# TYPE runnginx_uptime_seconds gauge\n");
+    body.push_str(&format!("runnginx_uptime_seconds {}\n", uptime));
+
+    // Latency histogram.
+    body.push_str("# HELP runnginx_request_duration_seconds Request latency\n");
+    body.push_str("# TYPE runnginx_request_duration_seconds histogram\n");
+    let mut cumulative = 0u64;
+    for (i, count) in s.latency_buckets.iter().enumerate() {
+        cumulative += count.load(Relaxed);
+        let bound_s = if i == 0 { 0.000001f64 } else { (1u64 << i) as f64 / 1_000_000.0 };
+        body.push_str(&format!("runnginx_request_duration_seconds_bucket{{le=\"{:.6}\"}} {}\n", bound_s, cumulative));
+    }
+    body.push_str(&format!("runnginx_request_duration_seconds_bucket{{le=\"+Inf\"}} {}\n", total));
+    body.push_str(&format!("runnginx_request_duration_seconds_sum {:.6}\n", p90 as f64 / 1_000_000.0 * total as f64));
+    body.push_str(&format!("runnginx_request_duration_seconds_count {}\n", total));
+
+    body.push_str("# HELP runnginx_p50_seconds p50 latency\n");
+    body.push_str("# TYPE runnginx_p50_seconds gauge\n");
+    body.push_str(&format!("runnginx_p50_seconds {:.6}\n", p50 as f64 / 1_000_000.0));
+    body.push_str("# HELP runnginx_p99_seconds p99 latency\n");
+    body.push_str("# TYPE runnginx_p99_seconds gauge\n");
+    body.push_str(&format!("runnginx_p99_seconds {:.6}\n", p99 as f64 / 1_000_000.0));
+
+    let body_bytes = body.as_bytes();
+    let mut r = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4; charset=utf-8\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n",
+        body_bytes.len()
+    ).into_bytes();
+    r.extend_from_slice(body_bytes);
+    r
+}
+

@@ -19,6 +19,12 @@ use crate::http::limits::*;
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
+pub fn load_from_str(src: &str) -> Result<Config> {
+    let tokens = tokenize(src);
+    let mut pos = 0usize;
+    parse_root(&tokens, &mut pos, std::path::Path::new("<string>"), 0)
+}
+
 pub fn load(path: &Path) -> Result<Config> {
     let src = std::fs::read_to_string(path)
         .with_context(|| format!("reading config {}", path.display()))?;
@@ -293,6 +299,23 @@ fn parse_http_block(tokens: &[Token], pos: &mut usize, config_path: &Path, depth
                 http.api_key = v;
                 expect_semi(tokens, pos)?;
             }
+            "brotli" => {
+                *pos += 1;
+                let v = expect_word(tokens, pos)?;
+                http.brotli = v == "on";
+                expect_semi(tokens, pos)?;
+            }
+            "brotli_types" => {
+                *pos += 1;
+                http.brotli_types = collect_args(tokens, pos);
+                expect_semi(tokens, pos)?;
+            }
+            "brotli_min_length" => {
+                *pos += 1;
+                let v = expect_word(tokens, pos)?;
+                http.brotli_min_length = parse_size(&v).context("brotli_min_length")?;
+                expect_semi(tokens, pos)?;
+            }
             "limit_req_zone" => {
                 *pos += 1;
                 let args = collect_args(tokens, pos);
@@ -311,6 +334,87 @@ fn parse_http_block(tokens: &[Token], pos: &mut usize, config_path: &Path, depth
                     }
                 }
                 expect_semi(tokens, pos)?;
+            }
+            "upstream" => {
+                // upstream groupname { server addr [weight=N]; ... policy; }
+                *pos += 1;
+                let name = expect_word(tokens, pos)?;
+                expect_open(tokens, pos)?;
+                let mut peers: Vec<(String, u32)> = Vec::new();
+                let mut policy = "round_robin".to_owned();
+                let mut health_interval = 0u64;
+                let mut health_timeout  = 5u64;
+                let mut fail_timeout    = 30u64;
+                let mut max_fails: u32  = 3;
+                let mut keepalive: usize = 0;
+                loop {
+                    match tokens.get(*pos) {
+                        None | Some(Token::CloseBrace) => { *pos += 1; break; }
+                        Some(Token::Word(_)) => {}
+                        _ => { *pos += 1; continue; }
+                    }
+                    match peek_word(tokens, *pos).expect("Word confirmed") {
+                        "server" => {
+                            *pos += 1;
+                            let addr = expect_word(tokens, pos)?;
+                            let mut weight = 1u32;
+                            let args = collect_args(tokens, pos);
+                            expect_semi(tokens, pos)?;
+                            for a in &args {
+                                if let Some(w) = a.strip_prefix("weight=") {
+                                    weight = w.parse().unwrap_or(1);
+                                }
+                            }
+                            peers.push((addr, weight));
+                        }
+                        "least_conn"   => { policy = "least_conn".to_owned();  *pos += 1; expect_semi(tokens, pos)?; }
+                        "ip_hash"      => { policy = "ip_hash".to_owned();     *pos += 1; expect_semi(tokens, pos)?; }
+                        "random"       => { policy = "random".to_owned();      *pos += 1; expect_semi(tokens, pos)?; }
+                        "keepalive" => {
+                            *pos += 1;
+                            let v = expect_word(tokens, pos)?;
+                            keepalive = v.parse().unwrap_or(0);
+                            expect_semi(tokens, pos)?;
+                        }
+                        "fail_timeout" => {
+                            *pos += 1;
+                            let v = expect_word(tokens, pos)?;
+                            fail_timeout = v.trim_end_matches('s').parse().unwrap_or(30);
+                            expect_semi(tokens, pos)?;
+                        }
+                        "max_fails" => {
+                            *pos += 1;
+                            let v = expect_word(tokens, pos)?;
+                            max_fails = v.parse().unwrap_or(3);
+                            expect_semi(tokens, pos)?;
+                        }
+                        "health_check" => {
+                            *pos += 1;
+                            let args = collect_args(tokens, pos);
+                            expect_semi(tokens, pos)?;
+                            for a in &args {
+                                if let Some(v) = a.strip_prefix("interval=") {
+                                    health_interval = v.trim_end_matches('s').parse().unwrap_or(0);
+                                }
+                                if let Some(v) = a.strip_prefix("timeout=") {
+                                    health_timeout = v.trim_end_matches('s').parse().unwrap_or(5);
+                                }
+                            }
+                        }
+                        unknown => {
+                            *pos += 1;
+                            let _ = collect_args(tokens, pos);
+                            match tokens.get(*pos) {
+                                Some(Token::Semicolon) => { *pos += 1; }
+                                _ => {}
+                            }
+                            warn!("unknown upstream directive '{}' — skipped", unknown);
+                        }
+                    }
+                }
+                http.upstream_groups.push(crate::config::types::UpstreamGroupDef {
+                    name, peers, policy, health_interval, health_timeout, fail_timeout, max_fails, keepalive,
+                });
             }
             "server" => {
                 *pos += 1;
@@ -387,6 +491,8 @@ fn parse_server_block(tokens: &[Token], pos: &mut usize, config_path: &Path, dep
         add_headers: Vec::new(),
         return_directive: None,
         limit_req: None,
+        rewrites: Vec::new(),
+        auth_basic: None,
     };
     let mut loc_count = 0usize;
 
@@ -447,6 +553,40 @@ fn parse_server_block(tokens: &[Token], pos: &mut usize, config_path: &Path, dep
                 let args = collect_args(tokens, pos);
                 srv.limit_req = parse_limit_req(&args);
                 expect_semi(tokens, pos)?;
+            }
+            "rewrite" => {
+                *pos += 1;
+                let pattern     = expect_word(tokens, pos)?;
+                let replacement = expect_word(tokens, pos)?;
+                let flag_str = if matches!(tokens.get(*pos), Some(Token::Word(_))) {
+                    let s = expect_word(tokens, pos)?;
+                    expect_semi(tokens, pos)?;
+                    s
+                } else {
+                    expect_semi(tokens, pos)?;
+                    "last".to_owned()
+                };
+                let flag = match flag_str.as_str() {
+                    "last"      => crate::config::types::RewriteFlag::Last,
+                    "break"     => crate::config::types::RewriteFlag::Break,
+                    "redirect"  => crate::config::types::RewriteFlag::Redirect,
+                    "permanent" => crate::config::types::RewriteFlag::Permanent,
+                    _           => crate::config::types::RewriteFlag::Last,
+                };
+                srv.rewrites.push(crate::config::types::RewriteRule { pattern, replacement, flag });
+            }
+            "auth_basic" => {
+                *pos += 1;
+                let realm = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                if realm != "off" { srv.auth_basic = Some(crate::config::types::AuthBasicConfig { realm, user_file: std::path::PathBuf::new() }); }
+            }
+            "auth_basic_user_file" => {
+                *pos += 1;
+                let file = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                if let Some(ref mut ab) = srv.auth_basic { ab.user_file = std::path::PathBuf::from(&file); }
+                else { srv.auth_basic = Some(crate::config::types::AuthBasicConfig { realm: "Restricted".to_owned(), user_file: std::path::PathBuf::from(file) }); }
             }
             "error_page" => {
                 *pos += 1;
@@ -603,6 +743,9 @@ fn parse_location(tokens: &[Token], pos: &mut usize, config_path: &Path, depth: 
     let mut return_directive: Option<ReturnDirective> = None;
     let mut gzip: Option<bool> = None;
     let mut limit_req: Option<crate::config::types::LimitReqRef> = None;
+    let mut rewrites: Vec<crate::config::types::RewriteRule> = Vec::new();
+    let mut auth_basic_realm: Option<String> = None;
+    let mut auth_basic_file: Option<std::path::PathBuf> = None;
 
     loop {
         match tokens.get(*pos) {
@@ -741,6 +884,39 @@ fn parse_location(tokens: &[Token], pos: &mut usize, config_path: &Path, depth: 
                 limit_req = parse_limit_req(&args);
                 expect_semi(tokens, pos)?;
             }
+            "rewrite" => {
+                *pos += 1;
+                let pattern     = expect_word(tokens, pos)?;
+                let replacement = expect_word(tokens, pos)?;
+                let flag_str = if matches!(tokens.get(*pos), Some(Token::Word(_))) {
+                    let s = expect_word(tokens, pos)?;
+                    expect_semi(tokens, pos)?;
+                    s
+                } else {
+                    expect_semi(tokens, pos)?;
+                    "last".to_owned()
+                };
+                let flag = match flag_str.as_str() {
+                    "last"      => crate::config::types::RewriteFlag::Last,
+                    "break"     => crate::config::types::RewriteFlag::Break,
+                    "redirect"  => crate::config::types::RewriteFlag::Redirect,
+                    "permanent" => crate::config::types::RewriteFlag::Permanent,
+                    _           => crate::config::types::RewriteFlag::Last,
+                };
+                rewrites.push(crate::config::types::RewriteRule { pattern, replacement, flag });
+            }
+            "auth_basic" => {
+                *pos += 1;
+                let realm = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                if realm != "off" { auth_basic_realm = Some(realm); }
+            }
+            "auth_basic_user_file" => {
+                *pos += 1;
+                let file = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                auth_basic_file = Some(std::path::PathBuf::from(file));
+            }
             unknown => {
                 warn!("unknown location directive '{}' — skipped", unknown);
                 *pos += 1;
@@ -754,6 +930,10 @@ fn parse_location(tokens: &[Token], pos: &mut usize, config_path: &Path, depth: 
         }
     }
 
+    let auth_basic: Option<crate::config::types::AuthBasicConfig> = match (auth_basic_realm, auth_basic_file) {
+        (Some(realm), Some(user_file)) => Some(crate::config::types::AuthBasicConfig { realm, user_file }),
+        _ => None,
+    };
     Ok(LocationBlock {
         pattern,
         handler,
@@ -765,6 +945,8 @@ fn parse_location(tokens: &[Token], pos: &mut usize, config_path: &Path, depth: 
         return_directive,
         gzip,
         limit_req,
+        rewrites,
+        auth_basic,
     })
 }
 
@@ -926,3 +1108,116 @@ fn parse_limit_req(args: &[String]) -> Option<crate::config::types::LimitReqRef>
     let nodelay = args.iter().any(|a| a == "nodelay");
     Some(crate::config::types::LimitReqRef { zone, burst, nodelay })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(s: &str) -> Config {
+        load_from_str(s).expect("parse failed")
+    }
+
+    #[test]
+    fn upstream_block_parsed() {
+        let cfg = parse(r#"http {
+            upstream backend {
+                server 127.0.0.1:3000 weight=2;
+                server 127.0.0.1:3001;
+                least_conn;
+                keepalive 16;
+                fail_timeout 30s;
+                max_fails 3;
+            }
+            server { listen 127.0.0.1:19000; }
+        }"#);
+        let g = &cfg.http.upstream_groups[0];
+        assert_eq!(g.name, "backend");
+        assert_eq!(g.peers.len(), 2);
+        assert_eq!(g.peers[0].1, 2);
+        assert_eq!(g.policy, "least_conn");
+        assert_eq!(g.keepalive, 16);
+        assert_eq!(g.fail_timeout, 30);
+        assert_eq!(g.max_fails, 3);
+    }
+
+    #[test]
+    fn rewrite_directive_server_level() {
+        let cfg = parse(r#"http {
+            server {
+                listen 127.0.0.1:19001;
+                rewrite ^/old/(.*)$ /new/$1 redirect;
+            }
+        }"#);
+        let srv = &cfg.http.servers[0];
+        assert_eq!(srv.rewrites.len(), 1);
+        assert_eq!(srv.rewrites[0].pattern, r"^/old/(.*)$");
+        assert_eq!(srv.rewrites[0].replacement, "/new/$1");
+        assert!(matches!(srv.rewrites[0].flag, crate::config::types::RewriteFlag::Redirect));
+    }
+
+    #[test]
+    fn rewrite_directive_location_level() {
+        let cfg = parse(r#"http {
+            server {
+                listen 127.0.0.1:19002;
+                location /app {
+                    rewrite ^/app/(.*)$ /index.php?q=$1 last;
+                    root /var/www;
+                }
+            }
+        }"#);
+        assert_eq!(cfg.http.servers[0].locations[0].rewrites.len(), 1);
+        assert!(matches!(cfg.http.servers[0].locations[0].rewrites[0].flag, crate::config::types::RewriteFlag::Last));
+    }
+
+    #[test]
+    fn auth_basic_directive() {
+        let cfg = parse(r#"http {
+            server {
+                listen 127.0.0.1:19003;
+                location /admin {
+                    auth_basic "Admin Area";
+                    auth_basic_user_file /etc/runnginx/.htpasswd;
+                    root /var/www;
+                }
+            }
+        }"#);
+        let ab = cfg.http.servers[0].locations[0].auth_basic.as_ref().unwrap();
+        assert_eq!(ab.realm, "Admin Area");
+        assert_eq!(ab.user_file.to_str().unwrap(), "/etc/runnginx/.htpasswd");
+    }
+
+    #[test]
+    fn brotli_directives() {
+        let cfg = parse(r#"http {
+            brotli on;
+            brotli_min_length 512;
+            brotli_types text/html text/css;
+            server { listen 127.0.0.1:19004; }
+        }"#);
+        assert!(cfg.http.brotli);
+        assert_eq!(cfg.http.brotli_min_length, 512);
+        assert!(cfg.http.brotli_types.contains(&"text/css".to_owned()));
+    }
+
+    #[test]
+    fn limit_req_zone_and_ref() {
+        let cfg = parse(r#"http {
+            limit_req_zone zone=api:1m rate=10r/s;
+            server {
+                listen 127.0.0.1:19005;
+                location /api {
+                    limit_req zone=api burst=5;
+                    root /var/www;
+                }
+            }
+        }"#);
+        assert_eq!(cfg.http.limit_req_zones.len(), 1);
+        assert_eq!(cfg.http.limit_req_zones[0].name, "api");
+        assert!((cfg.http.limit_req_zones[0].rate_rps - 10.0).abs() < 0.01);
+        let lr = cfg.http.servers[0].locations[0].limit_req.as_ref().unwrap();
+        assert_eq!(lr.zone, "api");
+        assert_eq!(lr.burst, 5);
+    }
+}
+

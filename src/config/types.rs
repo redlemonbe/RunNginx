@@ -29,12 +29,16 @@ pub struct HttpBlock {
     pub gzip: bool,
     pub gzip_types: Vec<String>,
     pub gzip_min_length: usize,
+    pub brotli: bool,
+    pub brotli_types: Vec<String>,
+    pub brotli_min_length: usize,
     pub access_log: AccessLog,
     pub client_max_body_size: usize,
     pub keepalive_timeout: u64,
     pub send_timeout: u64,
     pub api_key: String,
     pub limit_req_zones: Vec<LimitReqZoneDef>,
+    pub upstream_groups: Vec<UpstreamGroupDef>,
 }
 
 impl Default for HttpBlock {
@@ -51,6 +55,11 @@ impl Default for HttpBlock {
             send_timeout: 60,
             api_key: String::new(),
             limit_req_zones: Vec::new(),
+            upstream_groups: Vec::new(),
+            brotli: false,
+            brotli_types: vec!["text/html".into(), "text/css".into(),
+                               "application/javascript".into(), "application/json".into()],
+            brotli_min_length: 1024,
         }
     }
 }
@@ -71,6 +80,8 @@ pub struct ServerBlock {
     pub add_headers: Vec<(String, String)>,
     pub return_directive: Option<ReturnDirective>,
     pub limit_req: Option<LimitReqRef>,
+    pub rewrites:   Vec<RewriteRule>,
+    pub auth_basic: Option<AuthBasicConfig>,
 }
 
 #[derive(Debug, Clone)]
@@ -121,6 +132,8 @@ pub struct LocationBlock {
     pub return_directive: Option<ReturnDirective>,
     pub gzip: Option<bool>,
     pub limit_req: Option<LimitReqRef>,
+    pub rewrites:   Vec<RewriteRule>,
+    pub auth_basic: Option<AuthBasicConfig>,
 }
 
 #[derive(Debug, Clone)]
@@ -170,6 +183,7 @@ pub enum LocationHandler {
     FastCgi(FastCgiConfig),             // fastcgi_pass
     Proxy(ProxyConfig),                 // proxy_pass
     Return(ReturnDirective),            // return 301 https://...
+    UpstreamGroup(String),              // proxy_pass http://groupname
 }
 
 // ── FastCGI (PHP-FPM) ─────────────────────────────────────────────────────────
@@ -265,6 +279,31 @@ pub struct ErrorPage {
     pub uri: String,
 }
 
+// ── Rewrite rules ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub enum RewriteFlag {
+    Last,       // stop rewriting, re-match location
+    Break,      // stop rewriting, use this URI
+    Redirect,   // 302
+    Permanent,  // 301
+}
+
+#[derive(Debug, Clone)]
+pub struct RewriteRule {
+    pub pattern:     String,
+    pub replacement: String,
+    pub flag:        RewriteFlag,
+}
+
+// ── Auth basic ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct AuthBasicConfig {
+    pub realm:     String,
+    pub user_file: std::path::PathBuf,
+}
+
 // ── Rate limiting (limit_req) ─────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -278,4 +317,18 @@ pub struct LimitReqRef {
     pub zone:    String,
     pub burst:   u32,
     pub nodelay: bool,
+}
+
+// ── Upstream groups (load balancing) ─────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct UpstreamGroupDef {
+    pub name:            String,
+    pub peers:           Vec<(String, u32)>,  // (addr_str, weight)
+    pub policy:          String,              // round_robin | least_conn | ip_hash | random
+    pub health_interval: u64,                 // seconds, 0 = disabled
+    pub health_timeout:  u64,
+    pub fail_timeout:    u64,
+    pub max_fails:       u32,
+    pub keepalive:       usize,
 }
