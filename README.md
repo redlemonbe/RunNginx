@@ -13,7 +13,7 @@ A high-performance HTTP/1.1 server written in Rust, compatible with nginx-style 
 | **Static file serving** | Efficient sendfile-based serving, directory index, custom error pages |
 | **Reverse proxy** | HTTP upstream forwarding, `proxy_pass`, `proxy_set_header`, configurable timeouts |
 | **Load balancing** | Round-robin, least-connections, and IP-hash policies across upstream groups |
-| **TLS** | rustls-powered HTTPS, self-signed certificate auto-generation |
+| **TLS / HTTP/2** | rustls-powered HTTPS, self-signed certificate auto-generation; HTTP/2 via ALPN ( negotiated automatically over TLS) |
 | **ACME / Let's Encrypt** | In-process certificate issuance and renewal — no certbot required |
 | **FastCGI / PHP-FPM** | Full FastCGI client, supports Unix socket and TCP upstreams |
 | **WebSocket proxy** | Transparent TCP splice on `Upgrade: websocket` |
