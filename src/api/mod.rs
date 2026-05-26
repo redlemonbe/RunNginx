@@ -106,7 +106,7 @@ fn verify_login_credentials(username: &str, password: &str, ctx: &Arc<ApiContext
     u_ok && p_ok
 }
 
-fn handle_login_post(body: &[u8], ctx: &Arc<ApiContext>) -> Vec<u8> {
+fn handle_login_post(body: &[u8], headers: &[(String, String)], ctx: &Arc<ApiContext>) -> Vec<u8> {
     let parsed: serde_json::Value = match serde_json::from_slice(body) {
         Ok(v) => v,
         Err(_) => return json_response(400, r#"{"error":"Bad request"}"#),
@@ -129,7 +129,12 @@ fn handle_login_post(body: &[u8], ctx: &Arc<ApiContext>) -> Vec<u8> {
         store.insert(token.clone(), SessionEntry { expires: Instant::now() + SESSION_TTL });
     }
 
-    let cookie = format!("session={}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800", token);
+    // Add Secure flag when behind HTTPS (E-007)
+    let is_https = headers.iter().any(|(k, v)| {
+        k.eq_ignore_ascii_case("x-forwarded-proto") && v.eq_ignore_ascii_case("https")
+    });
+    let secure_flag = if is_https { "; Secure" } else { "" };
+    let cookie = format!("session={}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800{}", token, secure_flag);
     format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: {}\r\nContent-Length: 10\r\nConnection: close\r\n\r\n{{\"ok\":true}}",
         cookie
@@ -157,7 +162,12 @@ pub fn handle_api(
         "/health"  => Some(health_response()),
         "/metrics" => Some(prometheus_metrics(ctx)),
         "/login" if method == "GET"  => Some(serve_login()),
-        "/login" if method == "POST" => Some(handle_login_post(body, ctx)),
+        "/login" if method == "POST" => {
+            if !ctx.rate.allow(peer_ip) {
+                return Some(json_response(429, r#"{"error":"rate limit exceeded"}"#));
+            }
+            Some(handle_login_post(body, headers, ctx))
+        }
         "/logout" if method == "POST" => Some(handle_logout(headers, ctx)),
         "/ui" | "/ui/" => {
             if !has_valid_session(headers, ctx) {

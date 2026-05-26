@@ -564,3 +564,188 @@ This is a low-impact DoS that degrades performance but does not expose data or a
 | B | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | multiuser, TLS, auth (full), proxy, fastcgi |
 | C | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | ICMP guard, scan detector, AbuseIPDB, command injection, is_tls |
 | D | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | http2, websocket, cache, acme |
+
+
+---
+
+## Security Audit Cycle E — Sites Manager + Session Auth (v0.5.0)
+
+**Date:** 2026-05-27
+**Source:** [AI-INTERNAL] — Gemini 2.5 Pro (VM2) + Claude Sonnet 4.6 (review)
+**Scope:** `src/api/sites.rs`, `src/api/mod.rs` (session auth), `src/config/types.rs`, `src/config/parser.rs`
+
+---
+
+### RNN-2026-E-001 — CRITICAL — PHP injection via wp-config.php string replacement
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-E-001 |
+| **Severity** | CRITICAL |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/api/sites.rs:371` — `setup_wordpress()` |
+| **Discovered** | 2026-05-27 |
+| **Status** | ✅ Fixed v0.5.1 |
+
+**Description:** The `db_pass` field was inserted into `wp-config.php` via `.replace("password_here", db_pass)` without any PHP string escaping. A user-supplied password containing `'); ?>` would inject arbitrary PHP code executed at WordPress bootstrap.
+
+**Fix:** Added `php_escape()` closure that replaces `\` with `\\` and `'` with `\'` before substitution.
+
+---
+
+### RNN-2026-E-002 — CRITICAL — Nginx config injection via php_version and upstream_url
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-E-002 |
+| **Severity** | CRITICAL |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/api/sites.rs:94, 399` — `create_site()`, `generate_config()` |
+| **Discovered** | 2026-05-27 |
+| **Status** | ✅ Fixed v0.5.1 |
+
+**Description:** `php_version` and `upstream_url` were interpolated directly into the nginx config template without validation. A value like `8.2;\n} server { listen 80; location / { return 200 "pwned"; }` would inject arbitrary nginx directives.
+
+**Fix:** `php_version` validated as `[0-9.]{1-8}` only. `upstream_url` must start with `http://` or `https://`, max 512 chars, no `\n`, `\r`, `;`, `{`, `}`, `#`.
+
+---
+
+### RNN-2026-E-003 — HIGH — SQL injection in WordPress DB provisioning
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-E-003 |
+| **Severity** | HIGH |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/api/sites.rs:318` — `setup_wordpress()` |
+| **Discovered** | 2026-05-27 |
+| **Status** | ✅ Fixed v0.5.1 |
+
+**Description:** `db_name` and `db_user` were injected into the `mysql -e` SQL string without sanitisation. Backticks or semicolons could inject additional SQL commands. `db_pass` was also vulnerable in the `IDENTIFIED BY` clause.
+
+**Fix:** Strict allowlist validation on `db_name` and `db_user` (alphanumeric + `_` + `-`, max 64 chars). Single-quote escaping (`'` → `''`) applied to `db_pass` in the SQL string.
+
+---
+
+### RNN-2026-E-004 — HIGH — wp-config.php world-readable after chmod -R 755
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-E-004 |
+| **Severity** | HIGH |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/api/sites.rs:376` — `setup_wordpress()` |
+| **Discovered** | 2026-05-27 |
+| **Status** | ✅ Fixed v0.5.1 |
+
+**Description:** After recursive `chmod 755 webroot/`, the `wp-config.php` containing database credentials was world-readable by any local user.
+
+**Fix:** After the recursive chmod, a dedicated `chmod 640 wp-config.php` restricts the file to owner+group only.
+
+---
+
+### RNN-2026-E-005 — MEDIUM — No rate limiting on POST /login
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-E-005 |
+| **Severity** | MEDIUM |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/api/mod.rs:160` — `handle_api()` routing |
+| **Discovered** | 2026-05-27 |
+| **Status** | ✅ Fixed v0.5.1 |
+
+**Description:** The `/login` POST handler had a 300ms brute-force delay but bypassed the `ctx.rate.allow(peer_ip)` check applied to all other endpoints.
+
+**Fix:** Rate limiter check added before dispatching to `handle_login_post`.
+
+---
+
+### RNN-2026-E-006 — MEDIUM — WordPress security keys generated with non-random subsec_nanos
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-E-006 |
+| **Severity** | MEDIUM |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/api/sites.rs:561` — `rand_hex()` |
+| **Discovered** | 2026-05-27 |
+| **Status** | ✅ Fixed v0.5.1 |
+
+**Description:** `rand_hex()` used `subsec_nanos() as u8` in a tight loop, generating nearly constant output. The 8 WordPress security keys were thus predictable, weakening session and cookie security.
+
+**Fix:** Reads from `/dev/urandom` for cryptographically secure output.
+
+---
+
+### RNN-2026-E-007 — LOW — Secure flag missing on session cookie
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-E-007 |
+| **Severity** | LOW |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/api/mod.rs:132` — `handle_login_post()` |
+| **Discovered** | 2026-05-27 |
+| **Status** | ✅ Fixed v0.5.1 |
+
+**Description:** The `session` cookie lacked the `Secure` flag, risking token leak on HTTP connections. `HttpOnly` and `SameSite=Strict` were present.
+
+**Fix:** `Secure` flag added when `X-Forwarded-Proto: https` header is present.
+
+---
+
+### RNN-2026-E-008 — LOW — Length leakage in constant-time comparison
+
+| Field | Value |
+|-------|-------|
+| **ID** | RNN-2026-E-008 |
+| **Severity** | LOW |
+| **Source** | [AI-INTERNAL] |
+| **File** | `src/api/mod.rs:104, 211` — `verify_login_credentials()` |
+| **Discovered** | 2026-05-27 |
+| **Status** | ⚠️ Open |
+
+**Description:** `subtle::ConstantTimeEq` is used but compares slices of potentially different lengths. A mismatch in length returns immediately, leaking the expected length. This slightly aids brute-force by revealing password length.
+
+**Mitigation:** Compare fixed-length hashes (e.g. SHA-256) of credentials instead of raw strings. Low priority for local webui.
+
+---
+
+## Updated Known Limitations and Accepted Risks (post Cycle E)
+
+| # | Risk | Cycle | Status |
+|---|------|-------|--------|
+| 1 | No HUMAN-EXTERNAL audit | A | Open |
+| 2 | Username path traversal in home_dir | B | Open (B-002) |
+| 3 | TLS: self-signed cert, no auto-renewal | B | Mitigated: ACME added in v0.4.0 |
+| 4 | bcrypt error silently swallowed | A | Open (A-006) |
+| 5 | User IDs are nanosecond timestamps | B | Open (B-001) |
+| 6 | No supply chain audit | A | Open |
+| 7 | Rate limiting is per-IP only | A | Accepted |
+| 8 | io_uring zero-copy not audited | A | Open |
+| 9 | ICMP guard degrades on VMs without inet filter | C | Accepted (C-001) |
+| 10 | Scan detector first probe response is 404 | C | Open (C-003) |
+| 11 | HTTP/2 per-stream task spawn unbounded | D | Fixed v0.4.2 (D-001) |
+| 12 | WebSocket header CRLF injection | D | Fixed v0.4.2 (D-002) |
+| 13 | ACME renewal uses mtime not cert expiry | D | Open (D-003) |
+| 14 | Cache caches 404 responses | D | Accepted (D-004) |
+| 15 | Cache eviction silently drops when full | D | Accepted (D-005) |
+| 16 | PHP injection in wp-config.php | E | Fixed v0.5.1 (E-001) |
+| 17 | Nginx config injection via php_version/upstream | E | Fixed v0.5.1 (E-002) |
+| 18 | SQL injection in WordPress DB provisioning | E | Fixed v0.5.1 (E-003) |
+| 19 | wp-config.php world-readable | E | Fixed v0.5.1 (E-004) |
+| 20 | No rate limiting on /login | E | Fixed v0.5.1 (E-005) |
+| 21 | WordPress keys non-random | E | Fixed v0.5.1 (E-006) |
+| 22 | Secure cookie flag missing | E | Fixed v0.5.1 (E-007) |
+| 23 | Length leakage in CT comparison | E | Open (E-008) |
+
+## Audit trail (updated)
+
+| Cycle | Date | Source | Model | Scope |
+|-------|------|--------|-------|-------|
+| A | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | handler, auth, API, URI validation |
+| B | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | multiuser, TLS, auth (full), proxy, fastcgi |
+| C | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | ICMP guard, scan detector, AbuseIPDB, command injection, is_tls |
+| D | 2026-05-26 | AI-INTERNAL | Claude Sonnet 4.6 | http2, websocket, cache, acme |
+| E | 2026-05-27 | AI-INTERNAL | Gemini 2.5 Pro + Claude Sonnet 4.6 | sites manager, session auth, wp provisioning |

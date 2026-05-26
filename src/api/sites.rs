@@ -87,6 +87,22 @@ pub fn create_site(req: &SiteRequest, config_path: &Path) -> Value {
     if !is_valid_domain(&req.domain) {
         return json!({"error": "Invalid domain name"});
     }
+    // Validate php_version to prevent nginx config injection (E-002)
+    if let Some(ref ver) = req.php_version {
+        let ok = ver.len() <= 8 && ver.chars().all(|c| c.is_ascii_digit() || c == '.');
+        if !ok {
+            return json!({"error": "Invalid php_version format"});
+        }
+    }
+    // Validate upstream_url to prevent nginx config injection (E-002)
+    if let Some(ref url) = req.upstream_url {
+        let ok = (url.starts_with("http://") || url.starts_with("https://"))
+            && url.len() <= 512
+            && !url.bytes().any(|b| matches!(b, b'\n' | b'\r' | b' ' | b';' | b'{' | b'}' | b'#'));
+        if !ok {
+            return json!({"error": "Invalid upstream_url"});
+        }
+    }
 
     let webroot = PathBuf::from("/var/www").join(&req.domain).join("public");
     let sites_enabled = config_dir.join("sites-enabled");
@@ -306,11 +322,22 @@ fn setup_wordpress(req: &SiteRequest, webroot: &Path) -> Result<(), String> {
     if let (Some(db_name), Some(db_user), Some(db_pass)) =
         (&req.db_name, &req.db_user, &req.db_pass)
     {
+        // Validate DB identifiers to prevent SQL injection
+        let ok_ident = |s: &str| -> bool {
+            !s.is_empty() && s.len() <= 64 &&
+            s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        };
+        if !ok_ident(db_name) || !ok_ident(db_user) {
+            return Err(format!("Invalid db_name or db_user: only alphanumeric, _ and - allowed"));
+        }
+
         let db_host = req.db_host.as_deref().unwrap_or("localhost");
         let db_port = req.db_port.unwrap_or(3306);
         let root_user = req.db_root_user.as_deref().unwrap_or("root");
         let root_pass = req.db_root_pass.as_deref().unwrap_or("");
 
+        // Escape single-quotes in db_pass for MySQL string literal (E-003)
+        let escaped_db_pass = db_pass.replace("'", "''");
         let mysql_cmd = format!(
             "CREATE DATABASE IF NOT EXISTS `{db_name}`; \
              CREATE USER IF NOT EXISTS '{db_user}'@'localhost' IDENTIFIED BY '{db_pass}'; \
@@ -335,11 +362,17 @@ fn setup_wordpress(req: &SiteRequest, webroot: &Path) -> Result<(), String> {
         let sample = webroot.join("wp-config-sample.php");
         let config_php = webroot.join("wp-config.php");
         if sample.exists() && !config_php.exists() {
+            // Escape special PHP string chars to prevent code injection (E-001)
+                        let php_escape = |s: &str| -> String {
+                let mut r = s.replace('\\', "\\\\");
+                r = r.replace('\'', "\\\'");
+                r
+            };
             let mut content = std::fs::read_to_string(&sample).unwrap_or_default();
             content = content
                 .replace("database_name_here", db_name)
                 .replace("username_here", db_user)
-                .replace("password_here", db_pass)
+                .replace("password_here", &php_escape(db_pass))
                 .replace("localhost", db_host);
             // Generate unique keys
             let keys = [
@@ -361,9 +394,13 @@ fn setup_wordpress(req: &SiteRequest, webroot: &Path) -> Result<(), String> {
         }
     }
 
-    // Set file permissions
+    // Set file permissions — wp-config.php must not be world-readable (E-004)
     let _ = Command::new("chown").args(["-R", "www-data:www-data", webroot.to_str().unwrap()]).status();
     let _ = Command::new("chmod").args(["-R", "755", webroot.to_str().unwrap()]).status();
+    let wp_config = webroot.join("wp-config.php");
+    if wp_config.exists() {
+        let _ = Command::new("chmod").args(["640", wp_config.to_str().unwrap()]).status();
+    }
 
     Ok(())
 }
@@ -526,13 +563,15 @@ fn chrono_now() -> u64 {
 
 fn rand_hex(len: usize) -> String {
     use std::fmt::Write as FmtWrite;
-    let bytes: Vec<u8> = (0..len/2).map(|_| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .subsec_nanos() as u8
-    }).collect();
-    let mut s = String::new();
-    for b in bytes { write!(s, "{:02x}", b).unwrap(); }
+    let n = (len + 1) / 2;
+    let mut bytes = vec![0u8; n];
+    // Use /dev/urandom for cryptographically secure random bytes
+    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+        use std::io::Read;
+        let _ = f.read_exact(&mut bytes);
+    }
+    let mut s = String::with_capacity(len);
+    for b in &bytes { write!(s, "{:02x}", b).unwrap(); }
+    s.truncate(len);
     s
 }
