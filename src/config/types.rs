@@ -13,6 +13,9 @@ pub struct Config {
     pub worker_processes: WorkerCount,
     pub worker_connections: usize,
     pub http: HttpBlock,
+    pub firewall_manage:  bool,
+    pub firewall_backend: Option<String>,
+    pub firewall_tag:     String,
 }
 
 #[derive(Debug, Clone)]

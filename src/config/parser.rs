@@ -145,10 +145,30 @@ fn parse_root(tokens: &[Token], pos: &mut usize, config_path: &Path, depth: usiz
         worker_processes: WorkerCount::Auto,
         worker_connections: 1024,
         http: HttpBlock::default(),
+        firewall_manage:  true,
+        firewall_backend: None,
+        firewall_tag:     "runnginx".to_owned(),
     };
 
     while *pos < tokens.len() {
         match peek_word(tokens, *pos) {
+            Some("firewall_manage") | Some("firewall") => {
+                *pos += 1;
+                let val = expect_word(tokens, pos)?;
+                cfg.firewall_manage = !matches!(val.as_str(), "off" | "false" | "no" | "0");
+                expect_semi(tokens, pos)?;
+            }
+            Some("firewall_backend") => {
+                *pos += 1;
+                let val = expect_word(tokens, pos)?;
+                cfg.firewall_backend = if val == "auto" { None } else { Some(val) };
+                expect_semi(tokens, pos)?;
+            }
+            Some("firewall_tag") => {
+                *pos += 1;
+                cfg.firewall_tag = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+            }
             Some("worker_processes") => {
                 *pos += 1;
                 let val = expect_word(tokens, pos)?;

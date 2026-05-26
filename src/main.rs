@@ -21,6 +21,7 @@ mod limit_req;
 mod websocket;
 mod rewrite;
 mod auth;
+mod firewall;
 mod cache;
 mod multiuser;
 mod stats;
@@ -72,6 +73,12 @@ async fn main() -> Result<()> {
         info!("config test OK");
         return Ok(());
     }
+
+    // Collect all listen ports for firewall.
+    let cfg_ports: Vec<u16> = cfg.http.servers.iter()
+        .flat_map(|s| s.listen.iter().map(|l| l.addr.port()))
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter().collect();
 
     let http = Arc::new(cfg.http);
 
@@ -192,6 +199,23 @@ async fn main() -> Result<()> {
             }
         });
     }
+
+
+    // Firewall — open listen ports on startup, close on shutdown.
+    let fw_ports: Vec<(u16, &'static str)> = cfg_ports
+        .iter().map(|&p| (p, "tcp")).collect();
+    let fw = std::sync::Arc::new(firewall::FirewallManager::new(
+        cfg.firewall_manage,
+        cfg.firewall_backend.as_deref(),
+        &cfg.firewall_tag,
+    ));
+    fw.open(&fw_ports);
+    let fw_cleanup = std::sync::Arc::clone(&fw);
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.ok();
+        fw_cleanup.close();
+        std::process::exit(0);
+    });
 
     if handles.is_empty() {
         anyhow::bail!("no listen directives found in config");
