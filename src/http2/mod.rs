@@ -24,7 +24,9 @@ mod h2_impl {
     where
         IO: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
-        let mut conn = h2::server::handshake(io).await?;
+        let mut conn = h2::server::Builder::new()
+            .max_concurrent_streams(128)
+            .handshake(io).await?;
         while let Some(result) = conn.accept().await {
             let (req, respond) = result?;
             let ctx = Arc::clone(&ctx);

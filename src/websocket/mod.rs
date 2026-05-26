@@ -28,7 +28,11 @@ pub async fn upgrade_to_websocket(
     let mut req = format!("{} {} HTTP/1.1\r\n", method, path);
     for (k, v) in headers {
         if hop_by_hop.iter().any(|h| k.eq_ignore_ascii_case(h)) { continue; }
-        req.push_str(&format!("{}: {}\r\n", k, v));
+        // Strip \r and \n from header name and value to prevent CRLF injection to upstream.
+        let k_clean: String = k.chars().filter(|&c| c != '\r' && c != '\n').collect();
+        let v_clean: String = v.chars().filter(|&c| c != '\r' && c != '\n').collect();
+        if k_clean.is_empty() { continue; }
+        req.push_str(&format!("{}: {}\r\n", k_clean, v_clean));
     }
     req.push_str("\r\n");
 
