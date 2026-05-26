@@ -14,6 +14,17 @@ Most existing `nginx.conf` files work as-is. Non-standard directives are ignored
 
 ---
 
+## What's new in v0.4.0
+
+| Feature | Details |
+|---------|---------|
+| **HTTP/2** | h2 ALPN via TLS — multiplexed streams bridged to the HTTP/1.1 handler |
+| **WebSocket proxy** | Upgrade + TCP splice to upstream with configurable timeouts |
+| **Response cache** | TTL-based, DashMap, Cache-Control/no-store/private aware |
+| **ACME Let's Encrypt** | Pure Rust, HTTP-01 challenge, auto-renew at 60 days, staging support |
+| **Scan detector** | IP reputation + AbuseIPDB integration — progressive fingerprinting |
+| **ICMP guard** | Rate limiting via nfqueue or bpf-filter with per-process coordination |
+
 ## What you get
 
 | | nginx | Caddy | RunNginx |
