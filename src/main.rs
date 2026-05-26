@@ -14,6 +14,7 @@ mod router;
 mod server;
 mod simd;
 mod fastcgi;
+mod limit_req;
 mod stats;
 
 #[cfg(feature = "jemalloc")]
@@ -74,11 +75,17 @@ async fn main() -> Result<()> {
 
     let logger = Arc::new(server::access_log::Logger::new(&http.access_log));
 
+    let zones = limit_req::ZoneRegistry::new();
+    for z in &http.limit_req_zones {
+        zones.register(&z.name, z.rate_rps);
+    }
+
     let handler_ctx = Arc::new(server::handler::HandlerContext {
         http:    Arc::clone(&http),
         logger:  Arc::clone(&logger),
         stats:   Arc::clone(&api_ctx.stats),
         api_ctx: Arc::clone(&api_ctx),
+        zones:   Arc::clone(&zones),
     });
 
     let mut handles = Vec::new();

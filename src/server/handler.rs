@@ -32,6 +32,7 @@ pub struct HandlerContext {
     pub logger:  Arc<Logger>,
     pub stats:   Arc<Stats>,
     pub api_ctx: Arc<ApiContext>,
+    pub zones:   Arc<crate::limit_req::ZoneRegistry>,
 }
 
 pub async fn handle(
@@ -134,6 +135,28 @@ async fn dispatch(
         .collect();
     let server   = router::select_server(&servers_arc, &req.host);
     let location = router::select_location(server, &req.path);
+
+    // Per-location rate limit (limit_req).
+    let limit_ref = location
+        .and_then(|l| l.limit_req.as_ref())
+        .or(server.limit_req.as_ref());
+    if let Some(lr) = limit_ref {
+        if let Some(zone) = ctx.zones.get(&lr.zone) {
+            if !zone.allow(peer.ip(), lr.burst) {
+                let r = HandlerResult {
+                    bytes: format_response(429, &[
+                        ("Content-Type".to_owned(), "text/plain".to_owned()),
+                        ("Content-Length".to_owned(), "19".to_owned()),
+                        ("Retry-After".to_owned(), "1".to_owned()),
+                    ], false, b"429 Too Many Requests"),
+                    keep_alive: false,
+                    status: 429,
+                };
+                log_request(&req, &r, peer, &ctx.logger);
+                return r;
+            }
+        }
+    }
 
     // Enforce client_max_body_size.
     let max_body = location

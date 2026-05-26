@@ -34,6 +34,7 @@ pub struct HttpBlock {
     pub keepalive_timeout: u64,
     pub send_timeout: u64,
     pub api_key: String,
+    pub limit_req_zones: Vec<LimitReqZoneDef>,
 }
 
 impl Default for HttpBlock {
@@ -49,6 +50,7 @@ impl Default for HttpBlock {
             keepalive_timeout: DEFAULT_KEEPALIVE_TIMEOUT_S,
             send_timeout: 60,
             api_key: String::new(),
+            limit_req_zones: Vec::new(),
         }
     }
 }
@@ -68,6 +70,7 @@ pub struct ServerBlock {
     pub error_pages: Vec<ErrorPage>,
     pub add_headers: Vec<(String, String)>,
     pub return_directive: Option<ReturnDirective>,
+    pub limit_req: Option<LimitReqRef>,
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +120,7 @@ pub struct LocationBlock {
     pub client_max_body_size: Option<usize>,
     pub return_directive: Option<ReturnDirective>,
     pub gzip: Option<bool>,
+    pub limit_req: Option<LimitReqRef>,
 }
 
 #[derive(Debug, Clone)]
@@ -259,4 +263,19 @@ pub enum ReturnBody {
 pub struct ErrorPage {
     pub codes: Vec<u16>,
     pub uri: String,
+}
+
+// ── Rate limiting (limit_req) ─────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct LimitReqZoneDef {
+    pub name:     String,
+    pub rate_rps: f64,   // requests per second (parsed from "10r/s" or "100r/m")
+}
+
+#[derive(Debug, Clone)]
+pub struct LimitReqRef {
+    pub zone:    String,
+    pub burst:   u32,
+    pub nodelay: bool,
 }

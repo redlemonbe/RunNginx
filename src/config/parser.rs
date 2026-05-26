@@ -293,6 +293,25 @@ fn parse_http_block(tokens: &[Token], pos: &mut usize, config_path: &Path, depth
                 http.api_key = v;
                 expect_semi(tokens, pos)?;
             }
+            "limit_req_zone" => {
+                *pos += 1;
+                let args = collect_args(tokens, pos);
+                let zone_arg = args.iter().find(|a| a.starts_with("zone=")).map(|s| s.as_str());
+                let rate_arg = args.iter().find(|a| a.starts_with("rate=")).map(|s| s.as_str());
+                if let (Some(z), Some(r)) = (zone_arg, rate_arg) {
+                    let name = z.trim_start_matches("zone=").split(':').next().unwrap_or("");
+                    let rate_str = r.trim_start_matches("rate=");
+                    if let Some(rps) = crate::limit_req::ZoneRegistry::parse_rate(rate_str) {
+                        http.limit_req_zones.push(crate::config::types::LimitReqZoneDef {
+                            name: name.to_owned(),
+                            rate_rps: rps,
+                        });
+                    } else {
+                        warn!("invalid limit_req_zone rate: {}", rate_str);
+                    }
+                }
+                expect_semi(tokens, pos)?;
+            }
             "server" => {
                 *pos += 1;
                 expect_open(tokens, pos)?;
@@ -367,6 +386,7 @@ fn parse_server_block(tokens: &[Token], pos: &mut usize, config_path: &Path, dep
         error_pages: Vec::new(),
         add_headers: Vec::new(),
         return_directive: None,
+        limit_req: None,
     };
     let mut loc_count = 0usize;
 
@@ -421,6 +441,12 @@ fn parse_server_block(tokens: &[Token], pos: &mut usize, config_path: &Path, dep
                 if matches!(tokens.get(*pos), Some(Token::Word(w)) if w == "always") { *pos += 1; }
                 expect_semi(tokens, pos)?;
                 srv.add_headers.push((name, value));
+            }
+            "limit_req" => {
+                *pos += 1;
+                let args = collect_args(tokens, pos);
+                srv.limit_req = parse_limit_req(&args);
+                expect_semi(tokens, pos)?;
             }
             "error_page" => {
                 *pos += 1;
@@ -576,6 +602,7 @@ fn parse_location(tokens: &[Token], pos: &mut usize, config_path: &Path, depth: 
     let mut client_max_body_size: Option<usize> = None;
     let mut return_directive: Option<ReturnDirective> = None;
     let mut gzip: Option<bool> = None;
+    let mut limit_req: Option<crate::config::types::LimitReqRef> = None;
 
     loop {
         match tokens.get(*pos) {
@@ -708,6 +735,12 @@ fn parse_location(tokens: &[Token], pos: &mut usize, config_path: &Path, depth: 
                 expect_semi(tokens, pos)?;
                 gzip = Some(v == "on");
             }
+            "limit_req" => {
+                *pos += 1;
+                let args = collect_args(tokens, pos);
+                limit_req = parse_limit_req(&args);
+                expect_semi(tokens, pos)?;
+            }
             unknown => {
                 warn!("unknown location directive '{}' — skipped", unknown);
                 *pos += 1;
@@ -731,6 +764,7 @@ fn parse_location(tokens: &[Token], pos: &mut usize, config_path: &Path, depth: 
         client_max_body_size,
         return_directive,
         gzip,
+        limit_req,
     })
 }
 
@@ -875,4 +909,20 @@ fn parse_size(s: &str) -> Result<usize> {
     };
     let n: usize = num.parse().with_context(|| format!("invalid size '{}'", s))?;
     Ok(n * mult)
+}
+
+// ── limit_req parsing helper ─────────────────────────────────────────────────
+
+fn parse_limit_req(args: &[String]) -> Option<crate::config::types::LimitReqRef> {
+    // limit_req zone=name burst=20 [nodelay];
+    let zone = args.iter()
+        .find(|a| a.starts_with("zone="))?
+        .trim_start_matches("zone=")
+        .to_owned();
+    let burst = args.iter()
+        .find(|a| a.starts_with("burst="))
+        .and_then(|a| a.trim_start_matches("burst=").parse().ok())
+        .unwrap_or(0u32);
+    let nodelay = args.iter().any(|a| a == "nodelay");
+    Some(crate::config::types::LimitReqRef { zone, burst, nodelay })
 }
