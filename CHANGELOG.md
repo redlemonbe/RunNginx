@@ -1,5 +1,18 @@
 # Changelog — RunNginx
 
+## [0.2.0] — 2026-05-26
+
+### Added
+
+- **Hot backup**: `POST /api/backup` — snapshots `runnginx.conf` + `users.toml` to `config_dir/backups/backup_<ts>[_label]/`. Optional `label` field for named snapshots.
+- **Backup listing**: `GET /api/backups` — returns JSON list with id, timestamp, and `has_users` flag.
+- **Hot restore**: `POST /api/restore` with `{"id": "backup_<ts>"}` — copies config and users back from snapshot, then triggers a live reload.
+- **Backup deletion**: `DELETE /api/backups/<id>` — removes a named backup directory.
+
+Closes #31
+
+---
+
 ## [0.1.9] — 2026-05-26
 
 ### Security

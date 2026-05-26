@@ -52,6 +52,7 @@ pub fn handle_api(
     query:   &str,
     method:  &str,
     headers: &[(String, String)],
+    body:    &[u8],
     peer_ip: IpAddr,
     ctx:     &Arc<ApiContext>,
 ) -> Option<Vec<u8>> {
@@ -59,7 +60,7 @@ pub fn handle_api(
         "/health"  => Some(health_response()),
         "/metrics" => Some(prometheus_metrics(ctx)),
         "/ui" | "/ui/" => Some(serve_webui()),
-        p if p.starts_with("/api/") => Some(handle_api_authenticated(p, query, method, headers, peer_ip, ctx)),
+        p if p.starts_with("/api/") => Some(handle_api_authenticated(p, query, method, headers, body, peer_ip, ctx)),
         _ => None,
     }
 }
@@ -69,6 +70,7 @@ fn handle_api_authenticated(
     query:   &str,
     method:  &str,
     headers: &[(String, String)],
+    body:    &[u8],
     peer_ip: IpAddr,
     ctx:     &Arc<ApiContext>,
 ) -> Vec<u8> {
@@ -82,11 +84,18 @@ fn handle_api_authenticated(
         return json_response(401, r#"{"error":"unauthorized"}"#);
     }
 
+    let body_str = String::from_utf8_lossy(body);
     match (method, path) {
         ("GET",  "/api/stats")  => api_stats(ctx),
         ("GET",  "/api/system") => api_system(ctx),
         ("POST", "/api/reload") => api_reload(ctx),
         ("GET",  "/api/logs")   => api_logs(query, ctx),
+        ("POST", "/api/backup") => api_backup(ctx, &body_str),
+        ("GET",  "/api/backups") => api_list_backups(ctx),
+        ("POST", "/api/restore") => api_restore(ctx, &body_str),
+        (_, p) if method == "DELETE" && p.starts_with("/api/backups/") => {
+            api_delete_backup(ctx, &p["/api/backups/".len()..])
+        }
         _                       => json_response(404, r#"{"error":"not found"}"#),
     }
 }
@@ -198,8 +207,9 @@ fn api_reload(ctx: &Arc<ApiContext>) -> Vec<u8> {
 
 fn json_response(status: u16, body: &str) -> Vec<u8> {
     let reason = match status {
-        200 => "OK", 202 => "Accepted", 401 => "Unauthorized",
-        404 => "Not Found", 429 => "Too Many Requests", _ => "Error",
+        200 => "OK", 202 => "Accepted", 400 => "Bad Request",
+        401 => "Unauthorized", 404 => "Not Found",
+        429 => "Too Many Requests", 500 => "Internal Server Error", _ => "Error",
     };
     format!(
         "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nServer: RunNginx/{}\r\nConnection: close\r\n\r\n{}",
@@ -207,6 +217,135 @@ fn json_response(status: u16, body: &str) -> Vec<u8> {
         env!("CARGO_PKG_VERSION"),
         body
     ).into_bytes()
+}
+
+
+// ── Backup / Restore ─────────────────────────────────────────────────────────
+
+fn backup_dir(ctx: &Arc<ApiContext>) -> std::path::PathBuf {
+    ctx.config_path.parent()
+        .unwrap_or_else(|| std::path::Path::new("/etc/runnginx"))
+        .join("backups")
+}
+
+fn api_backup(ctx: &Arc<ApiContext>, body: &str) -> Vec<u8> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let label = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v["label"].as_str().map(|s| s.to_owned()))
+        .filter(|s| !s.is_empty() && s.len() <= 32
+            && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+        .unwrap_or_default();
+
+    let dir_name = if label.is_empty() {
+        format!("backup_{ts}")
+    } else {
+        format!("backup_{ts}_{label}")
+    };
+
+    let bdir = backup_dir(ctx).join(&dir_name);
+    if let Err(e) = std::fs::create_dir_all(&bdir) {
+        return json_response(500, &format!(r#"{{"error":"cannot create backup dir: {e}"}}"#));
+    }
+
+    // Copy config file
+    if let Err(e) = std::fs::copy(&ctx.config_path, bdir.join("runnginx.conf")) {
+        return json_response(500, &format!(r#"{{"error":"config copy failed: {e}"}}"#));
+    }
+
+    // Copy users.toml if present
+    let users_path = ctx.config_path.parent()
+        .unwrap_or_else(|| std::path::Path::new("/etc/runnginx"))
+        .join("users.toml");
+    if users_path.exists() {
+        let _ = std::fs::copy(&users_path, bdir.join("users.toml"));
+    }
+
+    json_response(200, &format!(r#"{{"id":"{dir_name}","ts":{ts}}}"#))
+}
+
+fn api_list_backups(ctx: &Arc<ApiContext>) -> Vec<u8> {
+    let bdir = backup_dir(ctx);
+    let entries = match std::fs::read_dir(&bdir) {
+        Ok(e) => e,
+        Err(_) => return json_response(200, "[]"),
+    };
+
+    let mut items: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.metadata().map(|m| m.is_dir()).unwrap_or(false))
+        .filter(|e| e.file_name().to_string_lossy().starts_with("backup_"))
+        .map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            let ts = e.metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let has_users = e.path().join("users.toml").exists();
+            format!(r#"{{"id":"{name}","ts":{ts},"has_users":{has_users}}}"#)
+        })
+        .collect();
+
+    items.sort();
+    json_response(200, &format!("[{}]", items.join(",")))
+}
+
+fn api_restore(ctx: &Arc<ApiContext>, body: &str) -> Vec<u8> {
+    let parsed: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(_) => return json_response(400, r#"{"error":"Invalid JSON"}"#),
+    };
+
+    let id = match parsed["id"].as_str() {
+        Some(s) => s.to_owned(),
+        None => return json_response(400, r#"{"error":"Missing id field"}"#),
+    };
+
+    if id.contains('/') || id.contains("..") || !id.starts_with("backup_") {
+        return json_response(400, r#"{"error":"Invalid backup id"}"#);
+    }
+
+    let bdir = backup_dir(ctx).join(&id);
+    if !bdir.exists() {
+        return json_response(404, r#"{"error":"Backup not found"}"#);
+    }
+
+    // Restore config file
+    if let Err(e) = std::fs::copy(bdir.join("runnginx.conf"), &ctx.config_path) {
+        return json_response(500, &format!(r#"{{"error":"config restore failed: {e}"}}"#));
+    }
+
+    // Restore users.toml if present in backup
+    let backup_users = bdir.join("users.toml");
+    if backup_users.exists() {
+        let users_path = ctx.config_path.parent()
+            .unwrap_or_else(|| std::path::Path::new("/etc/runnginx"))
+            .join("users.toml");
+        let _ = std::fs::copy(&backup_users, &users_path);
+    }
+
+    // Trigger reload
+    let _ = ctx.reload_tx.send(());
+
+    json_response(200, &format!(r#"{{"ok":true,"restored":"{id}"}}"#))
+}
+
+fn api_delete_backup(ctx: &Arc<ApiContext>, id: &str) -> Vec<u8> {
+    if id.contains('/') || id.contains("..") || !id.starts_with("backup_") {
+        return json_response(400, r#"{"error":"Invalid backup id"}"#);
+    }
+    let bdir = backup_dir(ctx).join(id);
+    match std::fs::remove_dir_all(&bdir) {
+        Ok(_) => json_response(200, &format!(r#"{{"ok":true,"deleted":"{id}"}}"#)),
+        Err(_) => json_response(404, r#"{"error":"Backup not found"}"#),
+    }
 }
 
 // ── Prometheus metrics ────────────────────────────────────────────────────────
