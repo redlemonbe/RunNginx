@@ -45,12 +45,10 @@ pub struct RequestLine<'a> {
 /// Parse the HTTP/1.1 request line from `buf`.
 /// Returns `(RequestLine, bytes_consumed)` or an error string.
 pub fn parse_request_line(buf: &[u8]) -> Result<(RequestLine<'_>, usize), &'static str> {
-    if buf.len() > MAX_REQUEST_LINE {
-        return Err("request line too long");
-    }
     // Find CRLF at end of request line.
     let crlf_pos = find_crlf(buf).ok_or("request line incomplete")?;
     let line = &buf[..crlf_pos];
+    if line.len() > MAX_REQUEST_LINE { return Err("request line too long"); }
 
     // Split on spaces.
     let sp1 = memchr::memchr(b' ', line).ok_or("malformed request line")?;

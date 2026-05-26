@@ -13,6 +13,7 @@ mod http;
 mod router;
 mod server;
 mod simd;
+mod fastcgi;
 mod stats;
 
 #[cfg(feature = "jemalloc")]

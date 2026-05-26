@@ -91,4 +91,6 @@ pub const FORBIDDEN_URI_SEQUENCES: &[&str] = &[
     "\x00", "%00",      // null byte injection
     "%2F", "%5C",       // encoded / and \ — path separator injection
     "//",               // double slash — some servers treat as root
+    "../",              // path traversal—escapes document root
+    "..\\",             // Windows-style path traversal
 ];

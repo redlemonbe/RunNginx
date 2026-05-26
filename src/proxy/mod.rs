@@ -207,7 +207,7 @@ fn build_proxy_request(
     }
 
     // Inject proxy headers.
-    let client_ip = headers.iter()
+    let existing_xff = headers.iter()
         .find(|(k, _)| k.eq_ignore_ascii_case("x-forwarded-for"))
         .map(|(_, v)| v.as_str())
         .unwrap_or("");
@@ -217,6 +217,10 @@ fn build_proxy_request(
         req.push_str(&format!("{}: {}\r\n", k, v));
     }
 
+    let xff_set = cfg.set_headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("x-forwarded-for"));
+    if !xff_set && !existing_xff.is_empty() {
+        req.push_str(&format!("X-Forwarded-For: {}\r\n", existing_xff));
+    }
     req.push_str(&format!("Content-Length: {}\r\n", body.len()));
     req.push_str("Connection: keep-alive\r\n\r\n");
 

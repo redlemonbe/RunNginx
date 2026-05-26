@@ -80,7 +80,7 @@ async fn dispatch(
         (full_uri, String::new())
     };
 
-    let (raw_headers, _) = match parse_headers(&raw[rl_len..]) {
+    let (raw_headers, headers_len) = match parse_headers(&raw[rl_len..]) {
         Ok(v) => v,
         Err(e) => return HandlerResult::bad_request(e, false),
     };
@@ -100,6 +100,15 @@ async fn dispatch(
         && get_header(&headers, "connection")
             .map(|v| !v.eq_ignore_ascii_case("close"))
             .unwrap_or(true);
+
+    // Extract body bytes (everything after the header section).
+    let body_offset = rl_len + headers_len;
+    let body_raw: &[u8] = if body_offset < raw.len() {
+        let remaining = &raw[body_offset..];
+        &remaining[..remaining.len().min(content_len)]
+    } else {
+        &[]
+    };
 
     // Check if this is an API request before routing to server blocks.
     if let Some(api_bytes) = api::handle_api(&path, &method, &headers, peer.ip(), &ctx.api_ctx) {
@@ -125,6 +134,24 @@ async fn dispatch(
         .collect();
     let server   = router::select_server(&servers_arc, &req.host);
     let location = router::select_location(server, &req.path);
+
+    // Enforce client_max_body_size.
+    let max_body = location
+        .and_then(|l| l.client_max_body_size)
+        .or(server.client_max_body_size)
+        .unwrap_or(ctx.http.client_max_body_size);
+    if req.content_len > max_body {
+        let r = HandlerResult {
+            bytes: format_response(413, &[
+                ("Content-Type".to_owned(), "text/plain".to_owned()),
+                ("Content-Length".to_owned(), "22".to_owned()),
+            ], keep_alive, b"413 Content Too Large"),
+            keep_alive: false,
+            status: 413,
+        };
+        log_request(&req, &r, peer, &ctx.logger);
+        return r;
+    }
 
     // Apply return directive.
     let return_dir = location
@@ -174,8 +201,20 @@ async fn dispatch(
                 &[],
             ).await
         }
-        Some(LocationHandler::FastCgi(_)) => {
-            static_files::not_implemented("fastcgi_pass not yet implemented")
+        Some(LocationHandler::FastCgi(fc)) => {
+            let root = location
+                .and_then(|l| l.root.as_deref())
+                .or(server.root.as_deref());
+            let root_str = root
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "/var/www/html".to_owned());
+            let script_rel = req.path.trim_start_matches('/');
+            let mut script_path = format!("{}/{}", root_str.trim_end_matches('/'), script_rel);
+            let index = fc.index.as_deref().unwrap_or("index.php");
+            if req.path.ends_with('/') || !std::path::Path::new(&script_path).extension().is_some() {
+                script_path = format!("{}/{}", script_path.trim_end_matches('/'), index);
+            }
+            crate::fastcgi::fastcgi_request(fc, &req.method, &req.path, &script_path, &req.headers, body_raw).await
         }
     };
 
