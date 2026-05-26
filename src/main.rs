@@ -77,15 +77,17 @@ async fn main() -> Result<()> {
 
     let (reload_tx, _reload_rx) = tokio::sync::watch::channel(());
 
+    let log_ring = crate::server::access_log::new_log_ring();
+    let logger = Arc::new(server::access_log::Logger::new_with_ring(&http.access_log, Arc::clone(&log_ring)));
+
     let api_ctx = Arc::new(api::ApiContext {
         stats:       Arc::new(stats::Stats::new()),
         rate:        Arc::new(stats::RateLimiter::new(crate::http::limits::API_RATE_LIMIT_RPS as u32)),
         http:        Arc::clone(&http),
         config_path: cli.config.clone(),
         reload_tx,
+        log_ring,
     });
-
-    let logger = Arc::new(server::access_log::Logger::new(&http.access_log));
 
     let zones = limit_req::ZoneRegistry::new();
     for z in &http.limit_req_zones {

@@ -168,7 +168,7 @@ async fn dispatch(
     }
 
     // Check if this is an API request before routing to server blocks.
-    if let Some(api_bytes) = api::handle_api(&path, &method, &headers, peer.ip(), &ctx.api_ctx) {
+    if let Some(api_bytes) = api::handle_api(&path, &query, &method, &headers, peer.ip(), &ctx.api_ctx) {
         // API endpoints always close the connection.
         ctx.logger.log(LogEntry {
             remote_addr:  peer,

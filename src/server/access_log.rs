@@ -2,8 +2,10 @@
 // Uses a dedicated task + unbounded channel to avoid blocking the request path.
 // Format: nginx combined — $remote_addr - - [$time_local] "$request" $status $body_bytes
 
+use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
@@ -24,37 +26,63 @@ pub struct LogEntry {
 
 // ── Logger handle ─────────────────────────────────────────────────────────────
 
+const RING_SIZE: usize = 500;
+
+/// Shared ring buffer of recent log lines (last RING_SIZE combined-format lines).
+pub type LogRing = Arc<Mutex<VecDeque<String>>>;
+
+pub fn new_log_ring() -> LogRing {
+    Arc::new(Mutex::new(VecDeque::with_capacity(RING_SIZE)))
+}
+
 #[derive(Clone)]
 pub struct Logger {
-    tx: Option<mpsc::UnboundedSender<LogEntry>>,
+    tx:   Option<mpsc::UnboundedSender<LogEntry>>,
+    ring: LogRing,
 }
 
 impl Logger {
     /// Create a logger from an AccessLog config directive.
     /// Returns a logger that either writes to a file, stderr, or is a no-op.
-    pub fn new(cfg: &AccessLog) -> Self {
+    pub fn new_with_ring(cfg: &AccessLog, ring: LogRing) -> Self {
         match cfg {
-            AccessLog::Off => Logger { tx: None },
+            AccessLog::Off => Logger { tx: None, ring },
             AccessLog::Stderr => {
                 let (tx, mut rx) = mpsc::unbounded_channel::<LogEntry>();
+                let rb = Arc::clone(&ring);
                 tokio::spawn(async move {
                     while let Some(entry) = rx.recv().await {
-                        eprintln!("{}", format_combined(&entry));
+                        let line = format_combined(&entry);
+                        eprintln!("{}", line);
+                        ring_push(&rb, line);
                     }
                 });
-                Logger { tx: Some(tx) }
+                Logger { tx: Some(tx), ring }
             }
             AccessLog::File(path) => {
                 let path = path.clone();
                 let (tx, mut rx) = mpsc::unbounded_channel::<LogEntry>();
+                let rb = Arc::clone(&ring);
                 tokio::spawn(async move {
-                    if let Err(e) = write_loop(path, &mut rx).await {
+                    if let Err(e) = write_loop(path, &mut rx, rb).await {
                         warn!("access log writer failed: {}", e);
                     }
                 });
-                Logger { tx: Some(tx) }
+                Logger { tx: Some(tx), ring }
             }
         }
+    }
+
+    /// Clone the shared ring buffer arc (for wiring into ApiContext).
+    pub fn ring(&self) -> LogRing {
+        Arc::clone(&self.ring)
+    }
+
+    /// Return the most recent `n` log lines (oldest first).
+    pub fn recent_lines(&self, n: usize) -> Vec<String> {
+        let r = self.ring.lock().unwrap();
+        let skip = r.len().saturating_sub(n);
+        r.iter().skip(skip).cloned().collect()
     }
 
     pub fn log(&self, entry: LogEntry) {
@@ -64,11 +92,20 @@ impl Logger {
     }
 }
 
+// ── Ring buffer helper ──────────────────────────────────────────────────────────
+
+fn ring_push(ring: &LogRing, line: String) {
+    let mut r = ring.lock().unwrap();
+    if r.len() >= RING_SIZE { r.pop_front(); }
+    r.push_back(line);
+}
+
 // ── File writer loop ──────────────────────────────────────────────────────────
 
 async fn write_loop(
     path: PathBuf,
     rx:   &mut mpsc::UnboundedReceiver<LogEntry>,
+    ring: LogRing,
 ) -> anyhow::Result<()> {
     // Open (or create) the log file in append mode.
     let file = tokio::fs::OpenOptions::new()
@@ -79,7 +116,9 @@ async fn write_loop(
     let mut writer = tokio::io::BufWriter::new(file);
 
     while let Some(entry) = rx.recv().await {
-        let line = format!("{}\n", format_combined(&entry));
+        let formatted = format_combined(&entry);
+        ring_push(&ring, formatted.clone());
+        let line = format!("{}\n", formatted);
         if let Err(e) = writer.write_all(line.as_bytes()).await {
             warn!("access log write: {}", e);
             // Re-open and retry on next entry.

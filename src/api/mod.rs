@@ -22,6 +22,7 @@ pub struct ApiContext {
     pub http:       Arc<HttpBlock>,
     pub config_path: PathBuf,
     pub reload_tx:  tokio::sync::watch::Sender<()>,
+    pub log_ring:   crate::server::access_log::LogRing,
 }
 
 // ── Route dispatcher ──────────────────────────────────────────────────────────
@@ -48,6 +49,7 @@ Connection: keep-alive
 
 pub fn handle_api(
     path:    &str,
+    query:   &str,
     method:  &str,
     headers: &[(String, String)],
     peer_ip: IpAddr,
@@ -57,13 +59,14 @@ pub fn handle_api(
         "/health"  => Some(health_response()),
         "/metrics" => Some(prometheus_metrics(ctx)),
         "/ui" | "/ui/" => Some(serve_webui()),
-        p if p.starts_with("/api/") => Some(handle_api_authenticated(p, method, headers, peer_ip, ctx)),
+        p if p.starts_with("/api/") => Some(handle_api_authenticated(p, query, method, headers, peer_ip, ctx)),
         _ => None,
     }
 }
 
 fn handle_api_authenticated(
     path:    &str,
+    query:   &str,
     method:  &str,
     headers: &[(String, String)],
     peer_ip: IpAddr,
@@ -83,6 +86,7 @@ fn handle_api_authenticated(
         ("GET",  "/api/stats")  => api_stats(ctx),
         ("GET",  "/api/system") => api_system(ctx),
         ("POST", "/api/reload") => api_reload(ctx),
+        ("GET",  "/api/logs")   => api_logs(query, ctx),
         _                       => json_response(404, r#"{"error":"not found"}"#),
     }
 }
@@ -108,6 +112,36 @@ fn health_response() -> Vec<u8> {
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         body.len(), body
     ).into_bytes()
+}
+
+fn api_logs(query: &str, ctx: &Arc<ApiContext>) -> Vec<u8> {
+    let n: usize = query.split('&')
+        .find_map(|kv| {
+            let mut p = kv.splitn(2, '=');
+            if p.next()? == "n" { p.next()?.parse().ok() } else { None }
+        })
+        .unwrap_or(100)
+        .min(500);
+
+    let lines = {
+        let ring = ctx.log_ring.lock().unwrap();
+        let skip = ring.len().saturating_sub(n);
+        ring.iter().skip(skip).cloned().collect::<Vec<_>>()
+    };
+
+    let body = serde_json::json!({"lines": lines, "total": lines.len()});
+    let body_bytes = body.to_string();
+    let mut r = format!(
+        "HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: {}
+Connection: close
+
+",
+        body_bytes.len()
+    );
+    r.push_str(&body_bytes);
+    r.into_bytes()
 }
 
 fn api_stats(ctx: &Arc<ApiContext>) -> Vec<u8> {

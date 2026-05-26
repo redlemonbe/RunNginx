@@ -400,18 +400,27 @@ async function createUser(){
   loadUsers();
 }
 
-let logTimer=null;
-function startLogs(){
-  if(logTimer)return;
-  logTimer=setInterval(appendLogLine,2000);
+let logTimer=null;let logLastLen=0;
+function startLogs(){if(logTimer)return;fetchLogs();logTimer=setInterval(fetchLogs,3000);}
+async function fetchLogs(){
+  try{
+    const r=await fetch(API+'/api/logs?n=200',{headers:hdr()});
+    if(!r.ok)return;
+    const d=await r.json();
+    const lines=d.lines||[];
+    if(lines.length===logLastLen)return;
+    logLastLen=lines.length;
+    const el=document.getElementById('log-lines');
+    el.innerHTML=lines.map(l=>{
+      const cls=l.match(/" (5\d\d) /)?'log-5xx':l.match(/" (4\d\d) /)?'log-4xx':l.match(/" (3\d\d) /)?'log-3xx':'log-2xx';
+      return '<div class=log-line +cls+>'+escHtml(l)+'</div>';
+    }).join('');
+    if(document.getElementById('log-follow').checked){
+      document.getElementById('log-container').scrollTop=99999;
+    }
+  }catch(e){console.warn('logs',e);}
 }
-function appendLogLine(){
-  // Simulated live log — in production, wire to SSE or poll /api/logs.
-  const lines=document.getElementById('log-lines');
-  if(document.getElementById('log-follow').checked){
-    document.getElementById('log-container').scrollTop=99999;
-  }
-}
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
 
 async function loadSettings(){
   const r=await fetch(API+'/api/system',{headers:hdr()});
