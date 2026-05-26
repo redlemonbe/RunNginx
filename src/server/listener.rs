@@ -1,5 +1,4 @@
 // TCP accept loop for HTTP/1.1 connections.
-// Spawns one tokio task per connection; each task drives keep-alive.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -10,33 +9,26 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
 
-use crate::config::types::{HttpBlock, TlsConfig};
+use crate::config::types::TlsConfig;
 use crate::http::limits::*;
-use crate::server::access_log::Logger;
-use crate::server::handler;
-
-// ── Listener handle ───────────────────────────────────────────────────────────
+use crate::server::handler::{HandlerContext, HandlerResult};
 
 pub struct Listener {
-    pub addr:    SocketAddr,
-    pub tls:     Option<Arc<TlsConfig>>,
-    pub http:    Arc<HttpBlock>,
-    pub logger:  Arc<Logger>,
+    pub addr: SocketAddr,
+    pub tls:  Option<Arc<TlsConfig>>,
+    pub ctx:  Arc<HandlerContext>,
 }
 
 impl Listener {
     pub async fn run(self) -> Result<()> {
         let tcp = TcpListener::bind(self.addr).await?;
         info!("listening on {}{}", self.addr, if self.tls.is_some() { " (TLS)" } else { "" });
-
         loop {
             match tcp.accept().await {
                 Ok((stream, peer)) => {
-                    let http   = Arc::clone(&self.http);
-                    let logger = Arc::clone(&self.logger);
-                    let tls    = self.tls.clone();
+                    let ctx = Arc::clone(&self.ctx);
                     tokio::spawn(async move {
-                        if let Err(e) = handle_connection(stream, peer, http, logger, tls).await {
+                        if let Err(e) = handle_connection(stream, peer, ctx).await {
                             debug!("connection {} closed: {}", peer, e);
                         }
                     });
@@ -47,36 +39,24 @@ impl Listener {
     }
 }
 
-// ── Connection handler ────────────────────────────────────────────────────────
-
 async fn handle_connection(
-    stream:  TcpStream,
-    peer:    SocketAddr,
-    http:    Arc<HttpBlock>,
-    logger:  Arc<Logger>,
-    tls_cfg: Option<Arc<TlsConfig>>,
+    stream: TcpStream,
+    peer:   SocketAddr,
+    ctx:    Arc<HandlerContext>,
 ) -> Result<()> {
     stream.set_nodelay(true)?;
-
-    if tls_cfg.is_some() {
-        return Err(anyhow::anyhow!("TLS not yet implemented (Phase 2)"));
-    }
-
-    handle_plain(stream, peer, http, logger).await
+    handle_plain(stream, peer, ctx).await
 }
-
-// ── Plain HTTP/1.1 keep-alive loop ────────────────────────────────────────────
 
 async fn handle_plain(
     mut stream: TcpStream,
     peer:       SocketAddr,
-    http:       Arc<HttpBlock>,
-    logger:     Arc<Logger>,
+    ctx:        Arc<HandlerContext>,
 ) -> Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    let mut buf       = vec![0u8; MAX_HEADER_BUFFER + DEFAULT_MAX_BODY_BYTES + 1];
-    let mut requests  = 0u64;
+    let mut buf      = vec![0u8; MAX_HEADER_BUFFER + DEFAULT_MAX_BODY_BYTES + 1];
+    let mut requests = 0u64;
 
     loop {
         if requests >= MAX_KEEPALIVE_REQUESTS {
@@ -84,7 +64,6 @@ async fn handle_plain(
             break;
         }
 
-        // Read with client header timeout.
         let n = match timeout(
             Duration::from_secs(DEFAULT_CLIENT_HEADER_TIMEOUT_S),
             stream.read(&mut buf),
@@ -101,18 +80,11 @@ async fn handle_plain(
         };
 
         requests += 1;
-
-        let result = handler::handle(&buf[..n], peer, Arc::clone(&http), Arc::clone(&logger)).await;
+        let result = crate::server::handler::handle(&buf[..n], peer, Arc::clone(&ctx)).await;
         let keep_alive = result.keep_alive;
-
         stream.write_all(&result.bytes).await?;
         stream.flush().await?;
-
         if !keep_alive { break; }
-
-        // Keep-alive idle timeout between requests.
-        // We reuse the header timeout here for simplicity.
-        // A dedicated keepalive_timeout could be added later.
     }
     Ok(())
 }

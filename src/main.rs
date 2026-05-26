@@ -5,11 +5,13 @@ use anyhow::Result;
 use clap::Parser;
 use tracing::info;
 
+mod api;
 mod config;
 mod http;
 mod router;
 mod server;
 mod simd;
+mod stats;
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
@@ -24,7 +26,6 @@ struct Cli {
     #[arg(short, long, default_value = "info")]
     log_level: String,
 
-    /// Test config and exit (nginx -t equivalent)
     #[arg(short = 't', long)]
     test: bool,
 }
@@ -52,19 +53,33 @@ async fn main() -> Result<()> {
 
     let http = Arc::new(cfg.http);
 
-    // Create access logger (uses http-level access_log directive).
+    let (reload_tx, _reload_rx) = tokio::sync::watch::channel(());
+
+    let api_ctx = Arc::new(api::ApiContext {
+        stats:       Arc::new(stats::Stats::new()),
+        rate:        Arc::new(stats::RateLimiter::new(crate::http::limits::API_RATE_LIMIT_RPS as u32)),
+        http:        Arc::clone(&http),
+        config_path: cli.config.clone(),
+        reload_tx,
+    });
+
     let logger = Arc::new(server::access_log::Logger::new(&http.access_log));
 
-    // Bind one listener per (server × listen) directive.
+    let handler_ctx = Arc::new(server::handler::HandlerContext {
+        http:    Arc::clone(&http),
+        logger:  Arc::clone(&logger),
+        stats:   Arc::clone(&api_ctx.stats),
+        api_ctx: Arc::clone(&api_ctx),
+    });
+
     let mut handles = Vec::new();
 
     for srv in &http.servers {
         for listen in &srv.listen {
             let listener = server::listener::Listener {
-                addr:    listen.addr,
-                tls:     srv.tls.as_ref().map(|t| Arc::new(t.clone())),
-                http:    Arc::clone(&http),
-                logger:  Arc::clone(&logger),
+                addr: listen.addr,
+                tls:  srv.tls.as_ref().map(|t| Arc::new(t.clone())),
+                ctx:  Arc::clone(&handler_ctx),
             };
             handles.push(tokio::spawn(async move {
                 if let Err(e) = listener.run().await {
@@ -78,8 +93,6 @@ async fn main() -> Result<()> {
         anyhow::bail!("no listen directives found in config");
     }
 
-    for h in handles {
-        let _ = h.await;
-    }
+    for h in handles { let _ = h.await; }
     Ok(())
 }

@@ -33,6 +33,7 @@ pub struct HttpBlock {
     pub client_max_body_size: usize,
     pub keepalive_timeout: u64,
     pub send_timeout: u64,
+    pub api_key: String,
 }
 
 impl Default for HttpBlock {
@@ -47,6 +48,7 @@ impl Default for HttpBlock {
             client_max_body_size: DEFAULT_MAX_BODY_BYTES,
             keepalive_timeout: DEFAULT_KEEPALIVE_TIMEOUT_S,
             send_timeout: 60,
+            api_key: String::new(),
         }
     }
 }

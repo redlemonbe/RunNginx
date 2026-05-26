@@ -287,6 +287,12 @@ fn parse_http_block(tokens: &[Token], pos: &mut usize, config_path: &Path, depth
                 http.send_timeout = v.trim_end_matches('s').parse().context("send_timeout")?;
                 expect_semi(tokens, pos)?;
             }
+            "api_key" => {
+                *pos += 1;
+                let v = expect_word(tokens, pos)?;
+                http.api_key = v;
+                expect_semi(tokens, pos)?;
+            }
             "server" => {
                 *pos += 1;
                 expect_open(tokens, pos)?;
