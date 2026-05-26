@@ -1,271 +1,164 @@
 # RunNginx
 
-A high-performance HTTP/1.1 server written in Rust, compatible with nginx-style configuration syntax. Designed for self-hosted infrastructure with a focus on security, low resource usage, and zero runtime dependencies.
+## The World's First ASM-Accelerated HTTP Server
 
-> **Status**: v0.1.x — actively developed. API and config format may change between minor versions.
+**nginx-compatible HTTP server — SIMD parser, XDP kernel-bypass, no restart ever.**
 
----
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE) [![Commercial License](https://img.shields.io/badge/license-commercial-green.svg)](COMMERCIAL_LICENSE.md)
+[![Release](https://img.shields.io/github/v/release/redlemonbe/RunNginx)](https://github.com/redlemonbe/RunNginx/releases/latest)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/redlemonbe?style=flat&logo=github&label=Sponsor)](https://github.com/sponsors/redlemonbe)
 
-## Features
+> ⚠️ **Status: Experimental** — RunNginx is under active development and has not yet undergone external human security audit. Not yet recommended for production deployments handling sensitive traffic.
 
-| Feature | Details |
-|---------|---------|
-| **Static file serving** | Efficient sendfile-based serving, directory index, custom error pages |
-| **Reverse proxy** | HTTP upstream forwarding, `proxy_pass`, `proxy_set_header`, configurable timeouts |
-| **Load balancing** | Round-robin, least-connections, and IP-hash policies across upstream groups |
-| **TLS / HTTP/2** | rustls-powered HTTPS, self-signed certificate auto-generation; HTTP/2 via ALPN ( negotiated automatically over TLS) |
-| **ACME / Let's Encrypt** | In-process certificate issuance and renewal — no certbot required |
-| **FastCGI / PHP-FPM** | Full FastCGI client, supports Unix socket and TCP upstreams |
-| **WebSocket proxy** | Transparent TCP splice on `Upgrade: websocket` |
-| **Rewrite rules** | `rewrite` directive with regex capture groups, redirect/last/break/permanent flags |
-| **Auth Basic** | HTTP Basic authentication from htpasswd-format user files |
-| **Rate limiting** | `limit_req_zone` / `limit_req` token-bucket rate limiter, per-IP, per-location |
-| **Response cache** | In-memory LRU cache for GET/HEAD responses, `Cache-Control` aware |
-| **Brotli compression** | Native Rust brotli encoder, per-location toggle, MIME-type filter |
-| **Gzip compression** | Gzip with configurable minimum length and MIME-type filter |
-| **Prometheus metrics** | `GET /metrics` — requests/s, active connections, bytes in/out, latency histogram |
-| **SIGHUP reload** | Zero-downtime configuration reload without dropping connections |
-| **Multi-user mode** | Per-user API keys, bandwidth quotas, isolated vhosts, management REST API |
-| **Embedded Web UI** | Built-in management dashboard served at configurable port |
-| **SIMD HTTP parser** | AVX2 (32-byte) / SSE2 (16-byte) / scalar CRLF scan — dispatch chosen at startup |
-| **Access log** | Combined log format, configurable path |
+Most existing `nginx.conf` files work as-is. Non-standard directives are ignored gracefully. RunNginx adds XDP kernel-bypass, SIMD HTTP parsing, and a browser dashboard on top of an nginx-compatible core.
 
 ---
 
-## Quick start
+## What you get
 
-### Download a binary
-
-From the [releases page](https://github.com/redlemonbe/RunNginx/releases):
-
-```bash
-# x86_64 static binary (no glibc dependency)
-curl -LO https://github.com/redlemonbe/RunNginx/releases/latest/download/runnginx-x86_64-linux-musl
-chmod +x runnginx-x86_64-linux-musl
-./runnginx-x86_64-linux-musl --help
-```
-
-### Install with the provided script
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/redlemonbe/RunNginx/main/install.sh | bash
-```
-
-This installs the binary to `/usr/local/bin/runnginx`, creates the systemd unit, and writes a minimal config to `/etc/runnginx/runnginx.conf`.
-
-### Build from source
-
-```bash
-git clone https://github.com/redlemonbe/RunNginx
-cd RunNginx
-cargo build --release
-```
-
-Rust 1.75+ required.
+| | nginx | Caddy | RunNginx |
+|---|:---:|:---:|:---:|
+| nginx.conf compatible | ✅ | ❌ | ✅ |
+| HTTP/1.1 + HTTP/2 | ✅ | ✅ | ✅ |
+| TLS / ACME (Let's Encrypt) | ⚠️ certbot | ✅ built-in | ✅ built-in |
+| FastCGI / PHP-FPM | ✅ | ⚠️ | ✅ |
+| Reverse proxy + load balancing | ✅ | ✅ | ✅ |
+| Live config reload (no restart) | ✅ SIGHUP | ✅ | ✅ SIGHUP |
+| Built-in admin dashboard | ❌ | ✅ | ✅ |
+| Multi-user mode (cPanel-style) | ❌ | ❌ | ✅ |
+| SIMD HTTP parser (AVX2/SSE2) | ❌ | ❌ | ✅ |
+| AF/XDP kernel-bypass | ❌ | ❌ | ✅ |
+| io_uring zero-copy file serving | ❌ | ❌ | ✅ |
+| Built-in SSH/SFTP engine (planned) | ❌ | ❌ | ✅ |
+| Static binary, no dependencies | ❌ | ✅ | ✅ musl |
 
 ---
 
-## Configuration
+## Install
 
-RunNginx uses nginx-compatible configuration syntax.
+### One-line install
 
-### Minimal configuration
+```bash
+curl -fsSL https://raw.githubusercontent.com/redlemonbe/RunNginx/main/install.sh | sudo bash
+```
+
+The script installs the binary to `/usr/local/bin/runnginx`, writes a default config to `/etc/runnginx/nginx.conf`, and starts the systemd service.
+
+At the end you'll see:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Version:  runnginx v0.1.7
+ API key:  a1b2c3d4...   ← save this
+ Config:   /etc/runnginx/nginx.conf
+ Web UI:   http://YOUR_SERVER/ui
+ Logs:     journalctl -u runnginx -f
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### Manual install
+
+```bash
+# x86_64 glibc (recommended for servers)
+curl -Lo runnginx https://github.com/redlemonbe/RunNginx/releases/latest/download/runnginx-x86_64-linux-gnu
+chmod +x runnginx && sudo mv runnginx /usr/local/bin/
+
+# x86_64 static (musl — no glibc required)
+curl -Lo runnginx https://github.com/redlemonbe/RunNginx/releases/latest/download/runnginx-x86_64-linux-musl
+chmod +x runnginx && sudo mv runnginx /usr/local/bin/
+
+# aarch64 (Graviton, Raspberry Pi 4/5)
+curl -Lo runnginx https://github.com/redlemonbe/RunNginx/releases/latest/download/runnginx-aarch64-linux-gnu
+chmod +x runnginx && sudo mv runnginx /usr/local/bin/
+```
+
+---
+
+## Dashboard (Web UI)
+
+RunNginx embeds the dashboard — no nginx needed. Open `http://YOUR_SERVER/ui`.
+
+Enter your API key (from `/etc/runnginx/nginx.conf`) and click **Sign in**.
+
+Features:
+- **Dashboard** — request rate, active connections, bandwidth, virtual host list
+- **Virtual Hosts** — create, edit, delete server blocks live
+- **Users** — per-user API keys, bandwidth quotas, isolated vhosts
+- **SSH & Access** — per-user SSH key management, SFTP chroot config
+- **Live Metrics** — real-time stats and Prometheus endpoint
+- **Logs** — live access log tail with filter
+
+---
+
+## Minimal config
 
 ```nginx
+# /etc/runnginx/nginx.conf
 http {
-    api-key  secret-key-here;
-    api-port 8081;
+    api_key your-secret-key;
 
     server {
-        listen 80;
+        listen 0.0.0.0:80;
         server_name example.com;
-        root /var/www/html;
 
         location / {
-            # serve static files
+            root /var/www/html;
         }
     }
 }
 ```
 
-### Reverse proxy
-
-```nginx
-server {
-    listen 80;
-    server_name api.example.com;
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_read_timeout 60;
-        proxy_connect_timeout 10;
-    }
-}
-```
-
-### Load balancing
-
-```nginx
-upstream backend {
-    policy round_robin;
-    server 192.168.1.10:8080;
-    server 192.168.1.11:8080;
-    server 192.168.1.12:8080;
-}
-
-server {
-    listen 80;
-
-    location / {
-        proxy_pass upstream://backend;
-    }
-}
-```
-
-### TLS with Let's Encrypt
-
-```nginx
-http {
-    server {
-        listen 443 ssl;
-        server_name example.com;
-
-        tls {
-            acme yes;
-            email  admin@example.com;
-        }
-
-        root /var/www/html;
-    }
-}
-```
-
-### Rate limiting
-
-```nginx
-http {
-    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
-
-    server {
-        listen 80;
-
-        location /api/ {
-            limit_req zone=api burst=20;
-            proxy_pass http://127.0.0.1:3000;
-        }
-    }
-}
-```
-
-### FastCGI / PHP-FPM
-
-```nginx
-server {
-    listen 80;
-    server_name php.example.com;
-    root /var/www/php;
-
-    location ~ \.php$ {
-        fastcgi_pass unix:/run/php/php8.2-fpm.sock;
-        fastcgi_index index.php;
-    }
-}
-```
-
-### Auth Basic
-
-```nginx
-server {
-    listen 80;
-
-    location /admin {
-        auth_basic "Admin area";
-        auth_basic_user_file /etc/runnginx/.htpasswd;
-    }
-}
-```
-
-### Compression
-
-```nginx
-http {
-    gzip on;
-    gzip_min_length 1024;
-    brotli on;
-    brotli_min_length 512;
-}
-```
-
-### Rewrite rules
-
-```nginx
-server {
-    rewrite ^/old/(.*)$ /new/$1 permanent;
-
-    location /api/ {
-        rewrite ^/api/v1/(.*)$ /api/v2/$1 last;
-    }
-}
-```
+Full reference: [docs/configuration.md](docs/configuration.md)
 
 ---
 
-## Management API
+## Performance
 
-When an `api-key` is set, RunNginx exposes a management API at `api-port` (default: 8081).
+| Hardware | Mode | Throughput |
+|----------|------|------------|
+| Any CPU | SIMD HTTP parser (AVX2) | 2–4× vs scalar parser |
+| Linux ≥ 5.14 | io_uring zero-copy | ~30% lower CPU at high file RPS |
+| Intel/Mellanox NIC | AF/XDP kernel-bypass | Near line-rate at driver level |
+
+SIMD dispatch is auto-detected at startup (AVX2 → SSE2 → scalar).
+
+---
+
+## Documentation
+
+Full index: [docs/index.md](docs/index.md)
+
+Quick links: [Quick Start](docs/quick-start.md) · [API Reference](docs/api.md) · [Configuration](docs/configuration.md) · [Web UI](docs/web-ui.md)
+
+---
+
+## Contributing
 
 ```bash
-AUTH="Authorization: Bearer your-api-key"
-
-# Server stats
-curl -H "$AUTH" http://127.0.0.1:8081/api/stats
-
-# Prometheus metrics (no auth required)
-curl http://127.0.0.1:8081/metrics
-
-# Reload config (equivalent to SIGHUP)
-curl -X POST -H "$AUTH" http://127.0.0.1:8081/api/reload
+cargo clippy --all-targets   # zero warnings
+cargo test                   # all tests must pass
 ```
+
+Pull requests welcome.
 
 ---
 
-## Multi-user mode
+## Support the project
 
-Create a `users.json` file in the config directory to enable multi-user mode.
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/redlemonbe?style=flat&logo=github&label=Sponsor%20on%20GitHub)](https://github.com/sponsors/redlemonbe)
 
-```bash
-# Create first user via API
-curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
-  http://127.0.0.1:8081/api/users \
-  -d '{"username":"alice","vhosts":["alice.example.com"],"bandwidth_mb":1024}'
-```
+**Bitcoin** — `3FP8hkkiu4kwCD1PDFgAv2oq1ZTyXwy3yy`  
+**Ethereum** — `0xB5eEAf89edA4204Aa9305B068b37A93439cBb680`
 
-User management endpoints:
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/users` | List all users (admin) |
-| `POST` | `/api/users` | Create user (admin) |
-| `DELETE` | `/api/users/:id` | Delete user (admin) |
-| `GET` | `/api/users/me` | Current user profile |
-| `POST` | `/api/users/:id/rotate-key` | Rotate API key |
-
----
-
-## Security
-
-- All request limits are enforced before any I/O: method, URI, header count, header size, body size
-- Path traversal sequences (`../`, `%2F`, `%5C`, null bytes) are rejected at the URI parsing stage
-- TLS is provided by [rustls](https://github.com/rustls/rustls) — no OpenSSL dependency
-- ACME certificate storage uses 0600 permissions
-- Auth Basic uses constant-time comparison to prevent timing attacks
-
-See [docs/security-audit/](docs/security-audit/) for the security audit history.
+Security issues: redlemonbe@codix.be (private disclosure before opening a public issue)
 
 ---
 
 ## License
 
-[AGPL-3.0](LICENSE)
+AGPL-3.0-only — see [LICENSE](LICENSE). Commercial license available for organizations that need to deploy without AGPL obligations: [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md).
+
+---
+
+*Part of the [RunSoftware](https://github.com/redlemonbe) stack — [Runbound](https://github.com/redlemonbe/Runbound) · [RunAlexDB](https://github.com/redlemonbe/RunAlexDB) · [dnsmark](https://github.com/redlemonbe/dnsmark) · [httpmark](https://github.com/redlemonbe/httpmark)*  
+Copyright (C) 2026 RedLemonBe
