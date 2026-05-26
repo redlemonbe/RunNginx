@@ -12,6 +12,7 @@ use crate::server::access_log::{LogEntry, Logger};
 use crate::server::static_files::{self, find_error_page_uri};
 use crate::simd::{parse_headers, parse_request_line, is_uri_safe, Header};
 use crate::stats::Stats;
+use subtle::ConstantTimeEq;
 
 // ── Parsed request ─────────────────────────────────────────────────────────────
 
@@ -155,7 +156,7 @@ async fn dispatch(
         .and_then(|h| h.strip_prefix("Bearer "))
         .map(|k| k.trim().to_owned())
         .unwrap_or_default();
-    let is_admin = !ctx.http.api_key.is_empty() && auth_header_val == ctx.http.api_key;
+    let is_admin = !ctx.http.api_key.is_empty() && bool::from(auth_header_val.as_bytes().ct_eq(ctx.http.api_key.as_bytes()));
     if let Some(bytes) = crate::multiuser::handle_user_api(&path, &method, body_raw, &auth_header_val, &ctx.user_registry, is_admin) {
         let status = extract_status_from_response(&bytes);
         ctx.logger.log(LogEntry {
@@ -178,7 +179,8 @@ async fn dispatch(
             referer:      get_header(&headers, "referer").unwrap_or("-").to_owned(),
             user_agent:   get_header(&headers, "user-agent").unwrap_or("-").to_owned(),
         });
-        return HandlerResult { bytes: api_bytes, keep_alive: false, status: 200, tunnel: None };
+        let api_status = extract_status_from_response(&api_bytes);
+        return HandlerResult { bytes: api_bytes, keep_alive: false, status: api_status, tunnel: None };
     }
 
     let mut req = ParsedRequest {
