@@ -5,481 +5,1175 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RunNginx</title>
 <style>
-:root{--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--border:#30363d;--text:#c9d1d9;--text2:#8b949e;--accent:#58a6ff;--accent2:#1f6feb;--green:#3fb950;--red:#f85149;--yellow:#d29922;--orange:#e3b341;--purple:#a371f7;font-size:14px}
+:root{--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--bg4:#2d333b;--border:#30363d;--text:#c9d1d9;--text2:#8b949e;--text3:#6e7681;--accent:#58a6ff;--accent2:#1f6feb;--green:#3fb950;--red:#f85149;--yellow:#e3b341;--orange:#d29922;--purple:#bc8cff;--teal:#39d353;font-size:14px}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;min-height:100vh;display:flex}
-.sidebar{width:240px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;height:100vh;z-index:100}
-.logo{padding:20px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
-.logo svg{width:28px;height:28px;fill:var(--accent)}
-.logo-text{font-size:16px;font-weight:700;color:var(--text)}
-.logo-ver{font-size:11px;color:var(--text2);margin-left:auto}
-nav{flex:1;padding:8px 0;overflow-y:auto}
-nav a{display:flex;align-items:center;gap:10px;padding:8px 16px;color:var(--text2);text-decoration:none;transition:all .15s;font-size:13px;border-left:2px solid transparent}
-nav a:hover{background:var(--bg3);color:var(--text)}
-nav a.active{background:var(--bg3);color:var(--accent);border-left-color:var(--accent)}
-nav a svg{width:16px;height:16px;flex-shrink:0}
-.nav-section{padding:12px 16px 4px;font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em}
-.sidebar-footer{padding:12px 16px;border-top:1px solid var(--border);font-size:11px;color:var(--text2)}
-.main{margin-left:240px;flex:1;min-height:100vh}
-.topbar{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
-.topbar-title{font-size:16px;font-weight:600}
-.topbar-actions{display:flex;gap:8px;align-items:center}
-.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600}
-.badge-green{background:rgba(63,185,80,.15);color:var(--green)}
-.badge-red{background:rgba(248,81,73,.15);color:var(--red)}
-.badge-yellow{background:rgba(210,153,34,.15);color:var(--yellow)}
-.badge-blue{background:rgba(88,166,255,.15);color:var(--accent)}
-.content{padding:24px;max-width:1400px}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;display:flex;min-height:100vh}
+
+/* ── Sidebar ── */
+.sidebar{width:230px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;height:100vh;z-index:100;overflow:hidden}
+.logo{padding:18px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0}
+.logo-icon{width:28px;height:28px;background:var(--accent2);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.logo-icon svg{width:16px;height:16px;fill:none;stroke:#fff;stroke-width:2}
+.logo-name{font-size:15px;font-weight:700;color:var(--text)}
+.logo-ver{font-size:11px;color:var(--text3);margin-left:auto;font-family:monospace}
+nav{flex:1;overflow-y:auto;padding:6px 0}
+nav::-webkit-scrollbar{width:4px}
+nav::-webkit-scrollbar-track{background:transparent}
+nav::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.nav-group{padding:14px 12px 4px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em}
+.nav-item{display:flex;align-items:center;gap:9px;padding:7px 12px;color:var(--text2);cursor:pointer;transition:all .12s;font-size:13px;border-left:2px solid transparent;user-select:none;text-decoration:none}
+.nav-item:hover{background:rgba(255,255,255,.04);color:var(--text)}
+.nav-item.active{background:rgba(88,166,255,.08);color:var(--accent);border-left-color:var(--accent)}
+.nav-item svg{width:15px;height:15px;flex-shrink:0;opacity:.7}
+.nav-item.active svg{opacity:1}
+.sidebar-footer{padding:12px 14px;border-top:1px solid var(--border);flex-shrink:0}
+.srv-status{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text2)}
+.pulse{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(63,185,80,.4);animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(63,185,80,.4)}70%{box-shadow:0 0 0 6px rgba(63,185,80,0)}100%{box-shadow:0 0 0 0 rgba(63,185,80,0)}}
+.pulse-red{background:var(--red);box-shadow:0 0 0 0 rgba(248,81,73,.4);animation:pulse-r 2s infinite}
+@keyframes pulse-r{0%{box-shadow:0 0 0 0 rgba(248,81,73,.4)}70%{box-shadow:0 0 0 6px rgba(248,81,73,0)}100%{box-shadow:0 0 0 0 rgba(248,81,73,0)}}
+
+/* ── Main ── */
+.main{margin-left:230px;flex:1;display:flex;flex-direction:column;min-height:100vh}
+.topbar{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 24px;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50;flex-shrink:0}
+.topbar-left{display:flex;align-items:center;gap:12px}
+.topbar-title{font-size:15px;font-weight:600}
+.breadcrumb{font-size:12px;color:var(--text3)}
+.topbar-right{display:flex;gap:8px;align-items:center}
+.content{padding:24px;flex:1}
 .page{display:none}.page.active{display:block}
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;margin-bottom:24px}
-.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px}
-.stat-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
-.stat-value{font-size:24px;font-weight:700;color:var(--text)}
-.stat-sub{font-size:11px;color:var(--text2);margin-top:4px}
-.card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:16px}
-.card-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
-.card-title{font-size:14px;font-weight:600}
+
+/* ── Cards & Grids ── */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:20px}
+.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px 18px;position:relative;overflow:hidden}
+.stat-card::after{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:var(--card-accent,var(--border))}
+.stat-label{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;font-weight:600}
+.stat-value{font-size:26px;font-weight:700;color:var(--text);line-height:1}
+.stat-sub{font-size:11px;color:var(--text3);margin-top:5px}
+.stat-trend{font-size:11px;margin-top:4px}
+.trend-up{color:var(--green)}.trend-dn{color:var(--red)}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:16px;overflow:hidden}
+.card-header{padding:13px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px}
+.card-title{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
+.card-actions{display:flex;align-items:center;gap:8px}
 .card-body{padding:16px}
+.card-body.no-pad{padding:0}
+
+/* ── Tables ── */
+.table-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse}
-th{padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)}
-td{padding:10px 12px;font-size:13px;border-bottom:1px solid var(--border)}
+th{padding:8px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:10px 14px;font-size:13px;border-bottom:1px solid var(--border)}
 tr:last-child td{border-bottom:none}
-tr:hover td{background:rgba(255,255,255,.02)}
-.btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;border:1px solid transparent;text-decoration:none}
-.btn-primary{background:var(--accent2);color:#fff;border-color:var(--accent2)}
-.btn-primary:hover{background:#388bfd}
-.btn-danger{background:transparent;color:var(--red);border-color:var(--red)}
-.btn-danger:hover{background:rgba(248,81,73,.1)}
-.btn-secondary{background:var(--bg3);color:var(--text);border-color:var(--border)}
-.btn-secondary:hover{background:rgba(255,255,255,.05)}
-.btn-sm{padding:3px 10px;font-size:12px}
-.input{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-size:13px;width:100%;outline:none;transition:border-color .15s}
-.input:focus{border-color:var(--accent)}
-.input::placeholder{color:var(--text2)}
-.form-group{margin-bottom:14px}
-.form-label{display:block;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:4px}
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center}
-.modal-overlay.open{display:flex}
-.modal{background:var(--bg2);border:1px solid var(--border);border-radius:10px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto}
-.modal-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
-.modal-header h3{font-size:15px;font-weight:600}
-.modal-close{background:none;border:none;color:var(--text2);cursor:pointer;font-size:20px;line-height:1}
-.modal-body{padding:20px}
-.modal-footer{padding:12px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px}
-.api-key{font-family:monospace;font-size:12px;background:var(--bg3);padding:8px 12px;border-radius:6px;border:1px solid var(--border);word-break:break-all;color:var(--orange)}
-.log-line{font-family:monospace;font-size:12px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.03);white-space:pre-wrap;word-break:break-all}
-.log-2xx{color:var(--green)}.log-3xx{color:var(--accent)}.log-4xx{color:var(--yellow)}.log-5xx{color:var(--red)}
-.chart-bar{height:4px;background:var(--accent);border-radius:2px;margin-bottom:1px;transition:width .3s}
-#toast{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px}
-.toast{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 16px;font-size:13px;animation:slideIn .2s ease;box-shadow:0 8px 24px rgba(0,0,0,.4)}
-.toast-success{border-left:3px solid var(--green);color:var(--green)}
-.toast-error{border-left:3px solid var(--red);color:var(--red)}
-@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:none;opacity:1}}
-.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+tbody tr:hover td{background:rgba(255,255,255,.02)}
+.td-mono{font-family:monospace;font-size:12px}
+.td-actions{display:flex;gap:6px;align-items:center}
+
+/* ── Badges ── */
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:600;white-space:nowrap}
+.badge-green{background:rgba(63,185,80,.12);color:var(--green);border:1px solid rgba(63,185,80,.2)}
+.badge-red{background:rgba(248,81,73,.12);color:var(--red);border:1px solid rgba(248,81,73,.2)}
+.badge-yellow{background:rgba(227,179,65,.12);color:var(--yellow);border:1px solid rgba(227,179,65,.2)}
+.badge-blue{background:rgba(88,166,255,.12);color:var(--accent);border:1px solid rgba(88,166,255,.2)}
+.badge-purple{background:rgba(188,140,255,.12);color:var(--purple);border:1px solid rgba(188,140,255,.2)}
+.badge-gray{background:var(--bg3);color:var(--text2);border:1px solid var(--border)}
+.dot-badge{width:7px;height:7px;border-radius:50%;display:inline-block}
 .dot-green{background:var(--green)}.dot-red{background:var(--red)}.dot-yellow{background:var(--yellow)}
-.tag{display:inline-block;padding:1px 8px;border-radius:12px;font-size:11px;font-weight:500;margin:1px;background:var(--bg3);border:1px solid var(--border);color:var(--text2)}
-#api-key-modal-key{cursor:pointer}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;transition:all .12s;border:1px solid transparent;text-decoration:none;white-space:nowrap;outline:none}
+.btn svg{width:14px;height:14px;flex-shrink:0}
+.btn-primary{background:var(--accent2);color:#fff;border-color:var(--accent2)}
+.btn-primary:hover{background:#2a7bdc}
+.btn-danger{background:rgba(248,81,73,.1);color:var(--red);border-color:rgba(248,81,73,.3)}
+.btn-danger:hover{background:rgba(248,81,73,.2)}
+.btn-secondary{background:var(--bg3);color:var(--text);border-color:var(--border)}
+.btn-secondary:hover{border-color:var(--text3)}
+.btn-ghost{background:transparent;color:var(--text2);border-color:transparent}
+.btn-ghost:hover{background:var(--bg3);color:var(--text)}
+.btn-sm{padding:4px 10px;font-size:12px}
+.btn-xs{padding:2px 8px;font-size:11px}
+
+/* ── Forms ── */
+.form-row{display:grid;gap:12px;margin-bottom:14px}
+.form-row-2{grid-template-columns:1fr 1fr}
+.form-group{display:flex;flex-direction:column;gap:4px}
+.form-label{font-size:12px;font-weight:500;color:var(--text2)}
+.form-hint{font-size:11px;color:var(--text3)}
+.input{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-size:13px;width:100%;outline:none;transition:border-color .12s}
+.input:focus{border-color:var(--accent)}
+.input::placeholder{color:var(--text3)}
+select.input{cursor:pointer}
+.input-group{display:flex;gap:0}
+.input-group .input{border-radius:6px 0 0 6px;flex:1}
+.input-group .btn{border-radius:0 6px 6px 0;border-left:none}
+.checkbox{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px}
+.checkbox input{width:15px;height:15px;cursor:pointer;accent-color:var(--accent)}
+
+/* ── Modals ── */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:500;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+.overlay.open{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:10px;width:500px;max-width:calc(100vw - 32px);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 16px 70px rgba(0,0,0,.5)}
+.modal-lg{width:700px}
+.modal-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.modal-header h3{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+.modal-close{background:none;border:none;color:var(--text3);cursor:pointer;padding:4px;line-height:0;border-radius:4px;transition:all .12s}
+.modal-close:hover{color:var(--text);background:var(--bg3)}
+.modal-body{padding:20px;overflow-y:auto;flex:1}
+.modal-footer{padding:14px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;flex-shrink:0}
+
+/* ── Login screen ── */
+.login-screen{display:none;position:fixed;inset:0;background:var(--bg);z-index:900;align-items:center;justify-content:center;flex-direction:column;gap:0}
+.login-screen.open{display:flex}
+.login-box{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:36px 40px;width:420px;max-width:calc(100vw - 32px)}
+.login-logo{display:flex;align-items:center;gap:10px;margin-bottom:28px;justify-content:center}
+.login-logo .icon{width:40px;height:40px;background:var(--accent2);border-radius:10px;display:flex;align-items:center;justify-content:center}
+.login-logo .icon svg{width:22px;height:22px;fill:none;stroke:#fff;stroke-width:2}
+.login-logo .name{font-size:20px;font-weight:800}
+.login-title{font-size:18px;font-weight:700;margin-bottom:6px}
+.login-sub{font-size:13px;color:var(--text2);margin-bottom:24px}
+.login-error{background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);border-radius:6px;padding:8px 12px;font-size:13px;color:var(--red);margin-bottom:14px;display:none}
+
+/* ── Charts ── */
+.chart-wrap{position:relative}
+canvas{display:block}
+.chart-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:4px}
+.mini-chart-row{display:flex;align-items:flex-end;gap:1px;height:40px}
+.mini-bar{background:var(--accent);border-radius:1px 1px 0 0;opacity:.7;flex:1;transition:height .2s}
+
+/* ── Code / log ── */
+.log-container{background:var(--bg);border:1px solid var(--border);border-radius:6px;font-family:'SF Mono','Fira Code',Consolas,monospace;font-size:11.5px;height:480px;overflow-y:auto;padding:8px 12px}
+.log-container::-webkit-scrollbar{width:6px}
+.log-container::-webkit-scrollbar-track{background:transparent}
+.log-container::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.log-line{padding:1px 0;line-height:1.6;white-space:pre-wrap;word-break:break-all}
+.log-2xx{color:#7ee787}.log-3xx{color:var(--accent)}.log-4xx{color:var(--yellow)}.log-5xx{color:var(--red)}.log-default{color:var(--text2)}
+.code-block{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:14px;font-family:'SF Mono','Fira Code',Consolas,monospace;font-size:12px;color:var(--text2);overflow:auto;max-height:500px;white-space:pre-wrap;word-break:break-all}
+.api-key-display{font-family:monospace;font-size:13px;background:var(--bg3);padding:10px 14px;border-radius:6px;border:1px solid var(--border);color:var(--orange, #e3b341);word-break:break-all;cursor:pointer;transition:border-color .12s}
+.api-key-display:hover{border-color:var(--accent)}
+
+/* ── Toast ── */
+#toast{position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 16px;font-size:13px;animation:slideIn .2s ease;box-shadow:0 8px 32px rgba(0,0,0,.4);pointer-events:all}
+.toast-ok{border-left:3px solid var(--green)}.toast-err{border-left:3px solid var(--red)}.toast-info{border-left:3px solid var(--accent)}
+@keyframes slideIn{from{transform:translateX(110%);opacity:0}to{transform:none;opacity:1}}
+@keyframes fadeOut{to{opacity:0;transform:translateX(110%)}}
+
+/* ── Misc ── */
+.divider{height:1px;background:var(--border);margin:16px 0}
+.empty-state{text-align:center;padding:40px 20px;color:var(--text3)}
+.empty-state svg{width:40px;height:40px;opacity:.3;margin-bottom:10px}
+.empty-state p{font-size:13px}
+.tag{display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:500;background:var(--bg3);border:1px solid var(--border);color:var(--text2);margin:1px}
+.key-pill{display:inline-block;font-family:monospace;font-size:11px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:2px 7px;color:var(--text2)}
+.section-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.info-row{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;background:var(--bg3);border-radius:6px;font-size:13px}
+.info-key{color:var(--text2);font-size:12px}
+.info-val{font-family:monospace;font-size:12px}
+.progress-bar{height:4px;background:var(--bg3);border-radius:2px;overflow:hidden;margin-top:6px}
+.progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .4s}
 </style>
 </head>
 <body>
-<div class="sidebar">
-  <div class="logo">
-    <svg viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-    <span class="logo-text">RunNginx</span>
-    <span class="logo-ver" id="ver">v0.1</span>
-  </div>
-  <nav>
-    <div class="nav-section">Overview</div>
-    <a href="#" class="active" onclick="showPage('dashboard',this)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Dashboard
-    </a>
-    <a href="#" onclick="showPage('metrics',this)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Metrics
-    </a>
-    <div class="nav-section">Config</div>
-    <a href="#" onclick="showPage('servers',this)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>Servers
-    </a>
-    <a href="#" onclick="showPage('upstreams',this)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>Upstreams
-    </a>
-    <div class="nav-section">Hosting</div>
-    <a href="#" onclick="showPage('users',this)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Users
-    </a>
-    <div class="nav-section">System</div>
-    <a href="#" onclick="showPage('logs',this)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>Logs
-    </a>
-    <a href="#" onclick="showPage('settings',this)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings
-    </a>
-  </nav>
-  <div class="sidebar-footer">
-    <span id="srv-status"><span class="dot dot-green"></span>Running</span>
+
+<!-- Login screen -->
+<div class="login-screen" id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="icon"><svg viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg></div>
+      <span class="name">RunNginx</span>
+    </div>
+    <div class="login-title">Management Console</div>
+    <div class="login-sub">Enter your admin API key to continue</div>
+    <div class="login-error" id="login-err">Invalid API key</div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label class="form-label">API Key</label>
+      <input class="input" id="login-key" type="password" placeholder="Paste your API key…" autocomplete="off">
+    </div>
+    <label class="checkbox" style="margin-bottom:20px">
+      <input type="checkbox" id="login-remember" checked>
+      <span>Remember in this browser</span>
+    </label>
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="doLogin()">Sign in</button>
   </div>
 </div>
 
-<div class="main">
-  <div class="topbar">
-    <div class="topbar-title" id="page-title">Dashboard</div>
-    <div class="topbar-actions">
-      <span class="badge badge-green" id="uptime-badge">Uptime —</span>
-      <button class="btn btn-secondary btn-sm" onclick="reload()">↺ Reload Config</button>
+<!-- Sidebar -->
+<div class="sidebar">
+  <div class="logo">
+    <div class="logo-icon"><svg viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg></div>
+    <span class="logo-name">RunNginx</span>
+    <span class="logo-ver" id="ver-badge">v—</span>
+  </div>
+  <nav>
+    <div class="nav-group">Overview</div>
+    <a class="nav-item active" onclick="nav('dashboard',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Dashboard
+    </a>
+    <a class="nav-item" onclick="nav('metrics',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Live Metrics
+    </a>
+    <div class="nav-group">Hosting</div>
+    <a class="nav-item" onclick="nav('vhosts',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      Virtual Hosts
+    </a>
+    <a class="nav-item" onclick="nav('users',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Users
+    </a>
+    <a class="nav-item" onclick="nav('ssh',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      SSH &amp; Access
+    </a>
+    <div class="nav-group">Infrastructure</div>
+    <a class="nav-item" onclick="nav('upstreams',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><line x1="7" y1="12" x2="17" y2="6"/><line x1="7" y1="12" x2="17" y2="18"/></svg>
+      Upstreams
+    </a>
+    <a class="nav-item" onclick="nav('logs',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      Access Logs
+    </a>
+    <div class="nav-group">System</div>
+    <a class="nav-item" onclick="nav('settings',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="srv-status">
+      <div class="pulse" id="srv-pulse"></div>
+      <span id="srv-label">Connecting…</span>
     </div>
   </div>
+</div>
+
+<!-- Main content -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="topbar-title" id="page-title">Dashboard</div>
+    </div>
+    <div class="topbar-right">
+      <span class="badge badge-green" id="uptime-chip" style="display:none">—</span>
+      <button class="btn btn-secondary btn-sm" onclick="reloadCfg()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-6"/></svg>
+        Reload Config
+      </button>
+      <button class="btn btn-ghost btn-sm" onclick="logout()" title="Sign out">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
+    </div>
+  </div>
+
   <div class="content">
 
-    <!-- Dashboard -->
+    <!-- ═══ DASHBOARD ═══ -->
     <div id="page-dashboard" class="page active">
-      <div class="stats-grid">
-        <div class="stat-card"><div class="stat-label">Requests Total</div><div class="stat-value" id="s-total">—</div><div class="stat-sub" id="s-rps">— req/s</div></div>
-        <div class="stat-card"><div class="stat-label">Active Connections</div><div class="stat-value" id="s-active">—</div></div>
-        <div class="stat-card"><div class="stat-label">Bytes Sent</div><div class="stat-value" id="s-bytes">—</div></div>
-        <div class="stat-card"><div class="stat-label">p99 Latency</div><div class="stat-value" id="s-p99">—</div></div>
-        <div class="stat-card"><div class="stat-label">2xx Responses</div><div class="stat-value" id="s-2xx" style="color:var(--green)">—</div></div>
-        <div class="stat-card"><div class="stat-label">4xx Errors</div><div class="stat-value" id="s-4xx" style="color:var(--yellow)">—</div></div>
-        <div class="stat-card"><div class="stat-label">5xx Errors</div><div class="stat-value" id="s-5xx" style="color:var(--red)">—</div></div>
-        <div class="stat-card"><div class="stat-label">p50 Latency</div><div class="stat-value" id="s-p50">—</div></div>
+      <div class="stat-grid">
+        <div class="stat-card" style="--card-accent:var(--accent)">
+          <div class="stat-label">Total Requests</div>
+          <div class="stat-value" id="d-total">—</div>
+          <div class="stat-sub" id="d-rps">— req/s</div>
+        </div>
+        <div class="stat-card" style="--card-accent:var(--green)">
+          <div class="stat-label">Active Connections</div>
+          <div class="stat-value" id="d-active">—</div>
+          <div class="stat-sub" id="d-active-sub">current</div>
+        </div>
+        <div class="stat-card" style="--card-accent:var(--purple)">
+          <div class="stat-label">Data Transferred</div>
+          <div class="stat-value" id="d-bytes">—</div>
+          <div class="stat-sub" id="d-bps">— /s out</div>
+        </div>
+        <div class="stat-card" style="--card-accent:var(--yellow)">
+          <div class="stat-label">p99 Latency</div>
+          <div class="stat-value" id="d-p99">—</div>
+          <div class="stat-sub" id="d-p50">p50: —</div>
+        </div>
+        <div class="stat-card" style="--card-accent:var(--green)">
+          <div class="stat-label">2xx Success</div>
+          <div class="stat-value" style="color:var(--green)" id="d-2xx">—</div>
+          <div class="stat-sub"><div class="progress-bar"><div class="progress-fill" id="d-2xx-bar" style="background:var(--green);width:0%"></div></div></div>
+        </div>
+        <div class="stat-card" style="--card-accent:var(--yellow)">
+          <div class="stat-label">4xx Client Errors</div>
+          <div class="stat-value" style="color:var(--yellow)" id="d-4xx">—</div>
+          <div class="stat-sub"><div class="progress-bar"><div class="progress-fill" id="d-4xx-bar" style="background:var(--yellow);width:0%"></div></div></div>
+        </div>
+        <div class="stat-card" style="--card-accent:var(--red)">
+          <div class="stat-label">5xx Server Errors</div>
+          <div class="stat-value" style="color:var(--red)" id="d-5xx">—</div>
+          <div class="stat-sub"><div class="progress-bar"><div class="progress-fill" id="d-5xx-bar" style="background:var(--red);width:0%"></div></div></div>
+        </div>
+        <div class="stat-card" style="--card-accent:var(--teal)">
+          <div class="stat-label">Uptime</div>
+          <div class="stat-value" id="d-uptime" style="font-size:18px">—</div>
+          <div class="stat-sub" id="d-version">—</div>
+        </div>
       </div>
+
+      <!-- Req/s sparkline chart -->
       <div class="card">
-        <div class="card-header"><span class="card-title">Request Rate (last 60s)</span></div>
-        <div class="card-body" id="rps-chart" style="height:80px;display:flex;align-items:flex-end;gap:2px"></div>
+        <div class="card-header">
+          <span class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Request Rate — last 60 seconds
+          </span>
+          <span class="badge badge-blue" id="chart-rps-badge">0 req/s</span>
+        </div>
+        <div class="card-body" style="padding-bottom:10px">
+          <canvas id="rps-canvas" height="80" style="width:100%;display:block"></canvas>
+          <div class="chart-labels"><span>60s ago</span><span>now</span></div>
+        </div>
+      </div>
+
+      <!-- Status distribution -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><polyline points="12 8 12 12 14 14"/></svg>
+            Response Status Distribution
+          </span>
+        </div>
+        <div class="card-body">
+          <div id="status-dist" style="display:flex;flex-direction:column;gap:10px"></div>
+        </div>
       </div>
     </div>
 
-    <!-- Metrics (Prometheus text) -->
+    <!-- ═══ LIVE METRICS ═══ -->
     <div id="page-metrics" class="page">
       <div class="card">
         <div class="card-header">
           <span class="card-title">Prometheus Metrics</span>
-          <a href="/metrics" target="_blank" class="btn btn-secondary btn-sm">Open Raw</a>
+          <div class="card-actions">
+            <a href="/metrics" target="_blank" class="btn btn-secondary btn-sm">Open raw</a>
+            <button class="btn btn-secondary btn-sm" onclick="loadMetrics()">Refresh</button>
+          </div>
         </div>
-        <div class="card-body">
-          <pre id="metrics-raw" style="font-size:11px;color:var(--text2);max-height:600px;overflow:auto;white-space:pre-wrap"></pre>
+        <div class="card-body no-pad">
+          <pre class="code-block" id="metrics-pre" style="border:none;border-radius:0;max-height:700px">Loading…</pre>
         </div>
       </div>
     </div>
 
-    <!-- Servers -->
-    <div id="page-servers" class="page">
+    <!-- ═══ VIRTUAL HOSTS ═══ -->
+    <div id="page-vhosts" class="page">
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Server Blocks</span>
-          <span class="badge badge-blue" id="srv-count">Loading…</span>
+          <span class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            Server Blocks
+          </span>
+          <div class="card-actions">
+            <span class="badge badge-gray" id="vhost-count">0 blocks</span>
+          </div>
         </div>
-        <div class="card-body">
-          <pre id="servers-raw" style="font-size:12px;color:var(--text2);max-height:600px;overflow:auto;white-space:pre-wrap">Loading…</pre>
+        <div class="card-body no-pad">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>#</th><th>Server Name(s)</th><th>Listen</th><th>Root / Proxy</th><th>TLS</th><th>Locations</th></tr></thead>
+              <tbody id="vhost-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
-
-    <!-- Upstreams -->
-    <div id="page-upstreams" class="page">
       <div class="card">
-        <div class="card-header"><span class="card-title">Upstream Groups</span></div>
-        <div class="card-body"><div id="upstreams-body">Loading…</div></div>
+        <div class="card-header"><span class="card-title">Raw Configuration</span><button class="btn btn-ghost btn-sm" onclick="loadVhosts()">Refresh</button></div>
+        <div class="card-body no-pad">
+          <pre class="code-block" id="vhost-raw" style="border:none;border-radius:0">Loading…</pre>
+        </div>
       </div>
     </div>
 
-    <!-- Users -->
+    <!-- ═══ USERS ═══ -->
     <div id="page-users" class="page">
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Hosting Users</span>
-          <button class="btn btn-primary btn-sm" onclick="openCreateUser()">+ Add User</button>
+          <span class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+            Hosting Users
+          </span>
+          <div class="card-actions">
+            <button class="btn btn-primary btn-sm" onclick="openAddUser()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add User
+            </button>
+          </div>
         </div>
-        <div class="card-body">
-          <table>
-            <thead><tr><th>Username</th><th>Domains</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody id="users-table"><tr><td colspan="4" style="color:var(--text2);text-align:center">Loading…</td></tr></tbody>
-          </table>
+        <div class="card-body no-pad">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Username</th><th>ID</th><th>Domains</th><th>Quota BW</th><th>Status</th><th>Role</th><th>Actions</th></tr></thead>
+              <tbody id="users-tbody"><tr><td colspan="7" class="empty-state">Loading…</td></tr></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Logs -->
+    <!-- ═══ SSH & ACCESS ═══ -->
+    <div id="page-ssh" class="page">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <span class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            SSH Access Management
+          </span>
+          <div class="card-actions">
+            <span class="badge badge-blue">Per-user isolation</span>
+          </div>
+        </div>
+        <div class="card-body">
+          <p style="font-size:13px;color:var(--text2);margin-bottom:20px">Each hosting user gets an isolated home directory. SSH access is managed via authorized_keys per user.</p>
+          <div class="form-group" style="margin-bottom:14px">
+            <label class="form-label">Select User</label>
+            <select class="input" id="ssh-user-select" onchange="loadSshKeys(this.value)" style="max-width:300px">
+              <option value="">— select a user —</option>
+            </select>
+          </div>
+          <div id="ssh-keys-panel" style="display:none">
+            <div class="card-header" style="background:var(--bg3);border-radius:6px;margin-bottom:12px;border:1px solid var(--border)">
+              <span class="card-title" id="ssh-keys-title">Authorized Keys</span>
+              <button class="btn btn-primary btn-sm" onclick="openAddKey()">+ Add Key</button>
+            </div>
+            <div id="ssh-keys-list"></div>
+          </div>
+          <div id="ssh-no-user" style="color:var(--text3);font-size:13px">Select a user above to manage their SSH keys.</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">SFTP Configuration</span><span class="badge badge-green">Active</span></div>
+        <div class="card-body">
+          <p style="font-size:13px;color:var(--text2);margin-bottom:16px">SFTP is provided via OpenSSH. Each user is chrooted to their home directory.</p>
+          <div class="info-grid">
+            <div class="info-row"><span class="info-key">Protocol</span><span class="info-val">SFTP (SSH subsystem)</span></div>
+            <div class="info-row"><span class="info-key">Port</span><span class="info-val">22</span></div>
+            <div class="info-row"><span class="info-key">Auth method</span><span class="info-val">SSH key only</span></div>
+            <div class="info-row"><span class="info-key">Chroot</span><span class="info-val">/home/&lt;username&gt;</span></div>
+          </div>
+          <div style="margin-top:14px">
+            <div class="section-title">sshd_config snippet for chroot SFTP</div>
+            <pre class="code-block">Match Group sftp-users
+    ChrootDirectory /home/%u
+    ForceCommand internal-sftp
+    AllowTcpForwarding no
+    X11Forwarding no</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ UPSTREAMS ═══ -->
+    <div id="page-upstreams" class="page">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Upstream Groups</span>
+          <button class="btn btn-ghost btn-sm" onclick="loadUpstreams()">Refresh</button>
+        </div>
+        <div class="card-body no-pad">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Group Name</th><th>Policy</th><th>Peers</th><th>Health Check</th></tr></thead>
+              <tbody id="upstreams-tbody"><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ LOGS ═══ -->
     <div id="page-logs" class="page">
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Access Log (live)</span>
-          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)">
-            <input type="checkbox" id="log-follow" checked> Auto-scroll
-          </label>
+          <span class="card-title">Access Logs</span>
+          <div class="card-actions">
+            <input class="input" id="log-filter" placeholder="Filter…" style="width:200px" oninput="renderLogs()">
+            <label class="checkbox" style="font-size:12px">
+              <input type="checkbox" id="log-follow" checked>
+              <span>Follow</span>
+            </label>
+            <button class="btn btn-ghost btn-sm" onclick="clearLogs()">Clear</button>
+            <span class="badge badge-gray" id="log-count">0 lines</span>
+          </div>
         </div>
-        <div class="card-body" style="max-height:600px;overflow-y:auto;background:var(--bg)" id="log-container">
-          <div id="log-lines" style="padding:8px"></div>
+        <div class="card-body no-pad" style="padding:0">
+          <div class="log-container" id="log-out"></div>
         </div>
       </div>
     </div>
 
-    <!-- Settings -->
+    <!-- ═══ SETTINGS ═══ -->
     <div id="page-settings" class="page">
-      <div class="card">
-        <div class="card-header"><span class="card-title">API Key</span></div>
-        <div class="card-body">
-          <p style="color:var(--text2);font-size:13px;margin-bottom:10px">Stored in <code>nginx.conf</code> as <code>api_key</code>. Keep secret.</p>
-          <div class="api-key" id="settings-api-key">—</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <!-- System Info -->
+        <div class="card">
+          <div class="card-header"><span class="card-title">System Information</span></div>
+          <div class="card-body">
+            <div style="display:flex;flex-direction:column;gap:8px" id="sysinfo-rows"></div>
+          </div>
+        </div>
+        <!-- API Key -->
+        <div class="card">
+          <div class="card-header"><span class="card-title">Authentication</span></div>
+          <div class="card-body">
+            <div class="form-group" style="margin-bottom:16px">
+              <label class="form-label">Current API Key</label>
+              <div class="api-key-display" id="key-display" onclick="copyKey()" title="Click to copy">••••••••••••</div>
+              <div class="form-hint" style="margin-top:4px">Click to copy. Stored in localStorage.</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Update API Key</label>
+              <div class="input-group">
+                <input class="input" id="new-key-input" type="password" placeholder="Paste new API key…">
+                <button class="btn btn-primary" onclick="updateKey()">Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Actions -->
+        <div class="card">
+          <div class="card-header"><span class="card-title">Server Actions</span></div>
+          <div class="card-body">
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <button class="btn btn-secondary" style="justify-content:flex-start" onclick="reloadCfg()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-6"/></svg>
+                Reload Configuration
+              </button>
+              <button class="btn btn-secondary" style="justify-content:flex-start" onclick="nav('logs',document.querySelector(\'[onclick*=\\'nav(\\'logs\\'\\']\'))')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                View Access Logs
+              </button>
+              <a href="/metrics" target="_blank" class="btn btn-secondary" style="justify-content:flex-start">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                Prometheus Metrics
+              </a>
+            </div>
+          </div>
+        </div>
+        <!-- About -->
+        <div class="card">
+          <div class="card-header"><span class="card-title">About RunNginx</span></div>
+          <div class="card-body">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div class="info-row"><span class="info-key">Project</span><span class="info-val">RunNginx</span></div>
+              <div class="info-row"><span class="info-key">License</span><span class="info-val">AGPL-3.0</span></div>
+              <div class="info-row"><span class="info-key">Language</span><span class="info-val">Rust</span></div>
+              <div class="info-row"><span class="info-key">Repository</span><span class="info-val" style="font-size:11px">github.com/redlemonbe/RunNginx</span></div>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="card">
-        <div class="card-header"><span class="card-title">System Info</span></div>
-        <div class="card-body">
-          <table><tbody id="sysinfo-table"></tbody></table>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<!-- ═══ MODALS ═══ -->
+
+<!-- Add User -->
+<div class="overlay" id="modal-add-user">
+  <div class="modal">
+    <div class="modal-header">
+      <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>Add Hosting User</h3>
+      <button class="modal-close" onclick="closeModal('modal-add-user')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group" style="margin-bottom:14px">
+        <label class="form-label">Username <span style="color:var(--red)">*</span></label>
+        <input class="input" id="nu-username" placeholder="e.g. john" autocomplete="off">
+        <span class="form-hint">Lowercase, no spaces. Home dir: /home/&lt;username&gt;</span>
+      </div>
+      <div class="form-group" style="margin-bottom:14px">
+        <label class="form-label">Domains (one per line)</label>
+        <textarea class="input" id="nu-domains" rows="3" placeholder="example.com&#10;www.example.com"></textarea>
+      </div>
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">BW Quota (bytes/day, 0=unlimited)</label>
+          <input class="input" id="nu-bw" type="number" min="0" value="0">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Max Connections (0=unlimited)</label>
+          <input class="input" id="nu-conn" type="number" min="0" value="0">
         </div>
       </div>
     </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-add-user')">Cancel</button>
+      <button class="btn btn-primary" onclick="createUser()">Create User</button>
+    </div>
   </div>
 </div>
 
-<!-- Create User Modal -->
-<div class="modal-overlay" id="create-user-modal">
+<!-- Show New User API Key -->
+<div class="overlay" id="modal-user-key">
   <div class="modal">
-    <div class="modal-header"><h3>Add Hosting User</h3><button class="modal-close" onclick="closeModal('create-user-modal')">×</button></div>
+    <div class="modal-header">
+      <h3>User Created</h3>
+      <button class="modal-close" onclick="closeModal('modal-user-key')">✕</button>
+    </div>
     <div class="modal-body">
-      <div class="form-group"><label class="form-label">Username</label><input class="input" id="new-username" placeholder="alice"></div>
-      <div class="form-group"><label class="form-label">Domains (comma-separated)</label><input class="input" id="new-domains" placeholder="example.com, www.example.com"></div>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Save this API key now — it won't be shown again.</p>
+      <label class="form-label">User API Key</label>
+      <div class="api-key-display" id="new-user-key-display" onclick="copyNewUserKey()"></div>
+      <div class="form-hint" style="margin-top:6px">Click to copy.</div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('create-user-modal')">Cancel</button>
-      <button class="btn btn-primary" onclick="createUser()">Create</button>
+      <button class="btn btn-primary" onclick="closeModal('modal-user-key')">Done</button>
     </div>
   </div>
 </div>
 
-<!-- API Key Result Modal -->
-<div class="modal-overlay" id="api-key-modal">
+<!-- Add SSH Key -->
+<div class="overlay" id="modal-add-key">
   <div class="modal">
-    <div class="modal-header"><h3>User Created</h3><button class="modal-close" onclick="closeModal('api-key-modal')">×</button></div>
-    <div class="modal-body">
-      <p style="color:var(--text2);margin-bottom:12px;font-size:13px">Save the API key — it won't be shown again.</p>
-      <div class="api-key" id="api-key-modal-key" title="Click to copy"></div>
+    <div class="modal-header">
+      <h3>Add SSH Public Key</h3>
+      <button class="modal-close" onclick="closeModal('modal-add-key')">✕</button>
     </div>
-    <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal('api-key-modal')">Done</button></div>
-  </div>
-</div>
-
-<!-- API Key Login Modal -->
-<div class="modal-overlay" id="login-modal" style="display:flex">
-  <div class="modal">
-    <div class="modal-header"><h3>RunNginx — Enter API Key</h3></div>
     <div class="modal-body">
-      <p style="color:var(--text2);font-size:13px;margin-bottom:14px">Enter your API key to access the management dashboard. Leave blank for read-only stats.</p>
-      <div class="form-group"><label class="form-label">API Key</label>
-        <input class="input" id="login-key-input" type="password" placeholder="Bearer token from nginx.conf" autocomplete="off">
+      <div class="form-group" style="margin-bottom:14px">
+        <label class="form-label">Label</label>
+        <input class="input" id="key-label" placeholder="e.g. macbook-pro">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Public Key <span style="color:var(--red)">*</span></label>
+        <textarea class="input" id="key-value" rows="4" placeholder="ssh-ed25519 AAAA… user@host" style="font-family:monospace;font-size:12px"></textarea>
+        <span class="form-hint">Paste the content of your ~/.ssh/id_ed25519.pub or id_rsa.pub</span>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="loginAnon()">Read-only</button>
-      <button class="btn btn-primary" onclick="loginSubmit()">Connect</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-add-key')">Cancel</button>
+      <button class="btn btn-primary" onclick="addSshKey()">Add Key</button>
     </div>
   </div>
 </div>
 
+<!-- Toast container -->
 <div id="toast"></div>
 
 <script>
-const API = '';  // same origin
-let apiKey = localStorage.getItem('runnginx_key') || '';
+'use strict';
 
-function showLoginModal(){
-  // Only show if no stored key
-  document.getElementById('login-modal').style.display='flex';
-  setTimeout(()=>document.getElementById('login-key-input').focus(),50);
+// ── State ──────────────────────────────────────────────────────────────────────
+let API = '';
+let apiKey = localStorage.getItem('rn_key') || '';
+let statsCache = {};
+let rpsHistory = new Array(60).fill(0);
+let prevReqs = null;
+let prevBytes = null;
+let statsInterval = null;
+let logLines = [];
+let logInterval = null;
+let sshKeys = {}; // user_id → [{label, key, id}]
+let currentSshUser = '';
+
+// ── Auth & Init ────────────────────────────────────────────────────────────────
+function hdr() {
+  return {'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json'};
 }
-function loginSubmit(){
-  const k=document.getElementById('login-key-input').value.trim();
-  if(k){apiKey=k;localStorage.setItem('runnginx_key',k);}
-  document.getElementById('login-modal').style.display='none';
+
+function logout() {
+  apiKey = '';
+  localStorage.removeItem('rn_key');
+  location.reload();
+}
+
+function showLogin() {
+  document.getElementById('login-screen').classList.add('open');
+}
+
+async function doLogin() {
+  const key = document.getElementById('login-key').value.trim();
+  if (!key) return;
+  const err = document.getElementById('login-err');
+  err.style.display = 'none';
+  try {
+    const r = await fetch(API + '/api/system', {headers: {'Authorization': 'Bearer ' + key}});
+    if (!r.ok) { err.style.display = ''; return; }
+    apiKey = key;
+    if (document.getElementById('login-remember').checked) localStorage.setItem('rn_key', key);
+    document.getElementById('login-screen').classList.remove('open');
+    init();
+  } catch(e) {
+    err.textContent = 'Connection failed: ' + e.message;
+    err.style.display = '';
+  }
+}
+
+document.getElementById('login-key').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+
+function init() {
+  startStats();
+  startLogs();
+  loadSettings();
+}
+
+// ── Navigation ─────────────────────────────────────────────────────────────────
+const PAGE_TITLES = {
+  dashboard: 'Dashboard', metrics: 'Live Metrics', vhosts: 'Virtual Hosts',
+  users: 'Users', ssh: 'SSH & Access', upstreams: 'Upstreams',
+  logs: 'Access Logs', settings: 'Settings'
+};
+
+function nav(page, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(a => a.classList.remove('active'));
+  const pEl = document.getElementById('page-' + page);
+  if (pEl) pEl.classList.add('active');
+  if (el) el.classList.add('active');
+  document.getElementById('page-title').textContent = PAGE_TITLES[page] || page;
+  // On-demand loads
+  if (page === 'metrics') loadMetrics();
+  if (page === 'vhosts') loadVhosts();
+  if (page === 'users') loadUsers();
+  if (page === 'upstreams') loadUpstreams();
+  if (page === 'ssh') loadSshPanel();
+}
+
+// ── Stats ──────────────────────────────────────────────────────────────────────
+function startStats() {
   fetchStats();
-}
-function loginAnon(){
-  document.getElementById('login-modal').style.display='none';
-  fetchStats();
-}
-document.getElementById('login-key-input').addEventListener('keydown',function(e){
-  if(e.key==='Enter')loginSubmit();
-});
-
-
-let prevTotal = 0, rpsHistory = new Array(60).fill(0), rpsIdx = 0;
-
-function hdr() { return apiKey ? {'Authorization':'Bearer '+apiKey} : {}; }
-function fmt(n){if(n===undefined||n===null)return'—';n=Number(n);if(n>=1e9)return(n/1e9).toFixed(1)+'G';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return String(n);}
-function fmtBytes(b){b=Number(b);if(b>=1<<30)return(b/(1<<30)).toFixed(1)+' GB';if(b>=1<<20)return(b/(1<<20)).toFixed(1)+' MB';if(b>=1<<10)return(b/(1<<10)).toFixed(1)+' KB';return b+' B';}
-function fmtMs(sec){if(sec<0.001)return(sec*1e6).toFixed(0)+'µs';if(sec<1)return(sec*1000).toFixed(1)+'ms';return sec.toFixed(2)+'s';}
-function fmtUptime(s){const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d>0?d+'d '+h+'h':h>0?h+'h '+m+'m':m+'m';}
-
-function toast(msg,type='success'){
-  const t=document.createElement('div');
-  t.className='toast toast-'+type;t.textContent=msg;
-  document.getElementById('toast').appendChild(t);
-  setTimeout(()=>t.remove(),3000);
+  statsInterval = setInterval(fetchStats, 2000);
 }
 
-function showPage(id,el){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));
-  document.getElementById('page-'+id).classList.add('active');
-  if(el)el.classList.add('active');
-  document.getElementById('page-title').textContent=el?el.textContent.trim():id;
-  if(id==='metrics')loadMetrics();
-  if(id==='servers')loadServers();
-  if(id==='upstreams')loadUpstreams();
-  if(id==='users')loadUsers();
-  if(id==='logs')startLogs();
-  if(id==='settings')loadSettings();
-  return false;
+async function fetchStats() {
+  try {
+    const r = await fetch(API + '/api/stats', {headers: hdr()});
+    if (!r.ok) { setSrvDown(); return; }
+    const d = await r.json();
+    statsCache = d;
+    setSrvUp();
+    updateDashboard(d);
+  } catch(e) { setSrvDown(); }
 }
 
-function openModal(id){document.getElementById(id).classList.add('open');}
-function closeModal(id){document.getElementById(id).classList.remove('open');}
-
-async function fetchStats(){
-  try{
-    const r=await fetch(API+'/api/stats',{headers:hdr()});
-    if(r.status===401){document.getElementById('s-total').textContent='Auth?';return;}
-    const d=await r.json();
-    document.getElementById('s-total').textContent=fmt(d.requests_total);
-    document.getElementById('s-active').textContent=fmt(d.active_connections);
-    document.getElementById('s-bytes').textContent=fmtBytes(d.bytes_sent);
-    document.getElementById('s-p99').textContent=fmtMs(d.p99_s||0);
-    document.getElementById('s-p50').textContent=fmtMs(d.p50_s||0);
-    document.getElementById('s-2xx').textContent=fmt(d.status_2xx);
-    document.getElementById('s-4xx').textContent=fmt(d.status_4xx);
-    document.getElementById('s-5xx').textContent=fmt(d.status_5xx);
-    document.getElementById('uptime-badge').textContent='Up '+fmtUptime(d.uptime_seconds||0);
-    const cur=Number(d.requests_total)||0;
-    const rps=cur-prevTotal;prevTotal=cur;
-    rpsHistory[rpsIdx%60]=rps;rpsIdx++;
-    document.getElementById('s-rps').textContent=rps+' req/s';
-    updateChart();
-    document.getElementById('ver').textContent=d.version||'v?';
-  }catch(e){console.warn('stats',e);}
+function setSrvUp() {
+  const p = document.getElementById('srv-pulse');
+  p.className = 'pulse';
+  document.getElementById('srv-label').textContent = 'Running';
 }
 
-function updateChart(){
-  const c=document.getElementById('rps-chart');c.innerHTML='';
-  const max=Math.max(...rpsHistory,1);
-  rpsHistory.forEach(v=>{
-    const b=document.createElement('div');
-    b.className='chart-bar';b.style.width='calc((100% - '+59*2+'px)/60)';
-    b.style.height=Math.max(4,(v/max)*76)+'px';
-    c.appendChild(b);
+function setSrvDown() {
+  const p = document.getElementById('srv-pulse');
+  p.className = 'pulse pulse-red';
+  document.getElementById('srv-label').textContent = 'Unreachable';
+}
+
+function updateDashboard(d) {
+  const reqs = d.requests_total || 0;
+  const bytes = d.bytes_sent || 0;
+  const active = d.active_connections || 0;
+  const s2xx = d.status_2xx || 0;
+  const s4xx = d.status_4xx || 0;
+  const s5xx = d.status_5xx || 0;
+  const p99 = d.latency_us ? d.latency_us['p99'] : (d.latency_us_p99 || 0);
+  const p50 = d.latency_us ? d.latency_us['p50'] : (d.latency_us_p50 || 0);
+
+  // Req/s
+  let rps = 0;
+  if (prevReqs !== null && reqs >= prevReqs) { rps = (reqs - prevReqs) / 2; }
+  prevReqs = reqs;
+
+  // Bytes/s
+  let bps = 0;
+  if (prevBytes !== null && bytes >= prevBytes) { bps = (bytes - prevBytes) / 2; }
+  prevBytes = bytes;
+
+  rpsHistory.shift(); rpsHistory.push(rps);
+
+  set('d-total', fmtNum(reqs));
+  set('d-rps', rps.toFixed(1) + ' req/s');
+  set('d-active', active);
+  set('d-bytes', fmtBytes(bytes));
+  set('d-bps', fmtBytes(bps) + '/s out');
+  set('d-p99', fmtLatency(p99));
+  set('d-p50', 'p50: ' + fmtLatency(p50));
+  set('d-2xx', fmtNum(s2xx));
+  set('d-4xx', fmtNum(s4xx));
+  set('d-5xx', fmtNum(s5xx));
+  set('d-uptime', fmtUptime(d.uptime_seconds || 0));
+  set('d-version', d.version ? 'v' + d.version : '—');
+
+  const upEl = document.getElementById('uptime-chip');
+  upEl.textContent = fmtUptime(d.uptime_seconds || 0);
+  upEl.style.display = '';
+
+  // Progress bars
+  const total = reqs || 1;
+  setPct('d-2xx-bar', s2xx / total * 100);
+  setPct('d-4xx-bar', s4xx / total * 100);
+  setPct('d-5xx-bar', s5xx / total * 100);
+
+  // RPS chart
+  drawRpsChart(rps);
+  set('chart-rps-badge', rps.toFixed(1) + ' req/s');
+
+  // Status distribution
+  renderStatusDist({s2xx, s3xx: d.status_3xx||0, s4xx, s5xx, total: reqs});
+}
+
+function drawRpsChart(currentRps) {
+  const canvas = document.getElementById('rps-canvas');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.parentElement.offsetWidth - 32;
+  const H = 80;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx2 = canvas.getContext('2d');
+  ctx2.scale(dpr, dpr);
+  ctx2.clearRect(0, 0, W, H);
+
+  const max = Math.max(...rpsHistory, 1);
+  const barW = W / 60 - 1;
+
+  rpsHistory.forEach((v, i) => {
+    const h = Math.max(2, (v / max) * (H - 4));
+    const x = i * (barW + 1);
+    const alpha = 0.3 + (i / 60) * 0.7;
+    ctx2.fillStyle = `rgba(88,166,255,${alpha})`;
+    ctx2.beginPath();
+    ctx2.roundRect(x, H - h, barW, h, [2, 2, 0, 0]);
+    ctx2.fill();
   });
 }
 
-async function loadMetrics(){
-  try{
-    const r=await fetch(API+'/metrics');
-    document.getElementById('metrics-raw').textContent=await r.text();
-  }catch(e){document.getElementById('metrics-raw').textContent='Error: '+e;}
+function renderStatusDist({s2xx, s3xx, s4xx, s5xx, total}) {
+  const el = document.getElementById('status-dist');
+  const rows = [
+    {label:'2xx Success',   val:s2xx, color:'var(--green)'},
+    {label:'3xx Redirect',  val:s3xx, color:'var(--accent)'},
+    {label:'4xx Client',    val:s4xx, color:'var(--yellow)'},
+    {label:'5xx Server',    val:s5xx, color:'var(--red)'},
+  ];
+  el.innerHTML = rows.map(r => {
+    const pct = total ? (r.val / total * 100) : 0;
+    return `<div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+        <span style="color:var(--text2)">${r.label}</span>
+        <span style="font-family:monospace">${fmtNum(r.val)} <span style="color:var(--text3)">(${pct.toFixed(1)}%)</span></span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="background:${r.color};width:${pct.toFixed(1)}%"></div></div>
+    </div>`;
+  }).join('');
 }
 
-async function loadServers(){
-  try{
-    const r=await fetch(API+'/api/system',{headers:hdr()});
-    const d=await r.json();
-    document.getElementById('ver').textContent=d.version||'v?';
-    const cnt=d.servers||0;
-    document.getElementById('srv-count').textContent=cnt+' server'+(cnt!==1?'s':'');
-    document.getElementById('servers-raw').textContent=JSON.stringify(d,null,2);
-  }catch(e){document.getElementById('servers-raw').textContent='Error: '+e;}
+// ── Metrics ────────────────────────────────────────────────────────────────────
+async function loadMetrics() {
+  try {
+    const r = await fetch(API + '/metrics');
+    const t = await r.text();
+    document.getElementById('metrics-pre').textContent = t;
+  } catch(e) { document.getElementById('metrics-pre').textContent = 'Error: ' + e.message; }
 }
 
-async function loadUpstreams(){
-  const el=document.getElementById('upstreams-body');
-  try{
-    const r=await fetch(API+'/api/system',{headers:hdr()});
-    const d=await r.json();
-    const groups=d.upstream_groups||[];
-    if(!groups.length){el.innerHTML='<p style="color:var(--text2)">No upstream groups configured.</p>';return;}
-    el.innerHTML='<table><thead><tr><th>Name</th><th>Policy</th><th>Peers</th><th>Health</th></tr></thead><tbody>'+
-      groups.map(g=>`<tr><td>${g.name}</td><td>${g.policy||'round_robin'}</td><td>${(g.peers||[]).join(', ')}</td><td>${g.health_interval>0?g.health_interval+'s':'off'}</td></tr>`).join('')+
-      '</tbody></table>';
-  }catch(e){el.textContent='Error: '+e;}
+// ── vHosts ─────────────────────────────────────────────────────────────────────
+async function loadVhosts() {
+  try {
+    const r = await fetch(API + '/api/system', {headers: hdr()});
+    const d = await r.json();
+    const servers = d.server_blocks || d.servers || 0;
+    set('vhost-count', servers + ' block' + (servers !== 1 ? 's' : ''));
+    const tbody = document.getElementById('vhost-tbody');
+    const upg = d.upstream_groups || [];
+    tbody.innerHTML = upg.length ? upg.map((g, i) => `
+      <tr>
+        <td>${i+1}</td>
+        <td><code>${g.name}</code></td>
+        <td>—</td>
+        <td><span class="badge badge-blue">upstream group</span></td>
+        <td><span class="badge badge-gray">—</span></td>
+        <td>${(g.peers||[]).length} peers</td>
+      </tr>
+    `).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No upstream groups — server blocks are defined in the config file.</td></tr>`;
+    document.getElementById('vhost-raw').textContent = JSON.stringify(d, null, 2);
+  } catch(e) { document.getElementById('vhost-raw').textContent = 'Error: ' + e.message; }
 }
 
-async function loadUsers(){
-  const tb=document.getElementById('users-table');
-  try{
-    const r=await fetch(API+'/api/users',{headers:hdr()});
-    if(r.status===401){tb.innerHTML='<tr><td colspan="4" style="color:var(--text2)">Requires admin API key</td></tr>';return;}
-    const d=await r.json();
-    const users=d.users||[];
-    if(!users.length){tb.innerHTML='<tr><td colspan="4" style="color:var(--text2);text-align:center">No users yet. Click "+ Add User".</td></tr>';return;}
-    tb.innerHTML=users.map(u=>`<tr>
-      <td><strong>${u.username}</strong></td>
-      <td>${(u.domains||[]).map(d=>'<span class="tag">'+d+'</span>').join('')}</td>
-      <td><span class="badge ${u.enabled?'badge-green':'badge-red'}">${u.enabled?'Active':'Disabled'}</span></td>
-      <td><button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}')">Delete</button></td>
-    </tr>`).join('');
-  }catch(e){tb.innerHTML='<tr><td colspan="4">Error: '+e+'</td></tr>';}
+// ── Users ──────────────────────────────────────────────────────────────────────
+async function loadUsers() {
+  try {
+    const r = await fetch(API + '/api/users', {headers: hdr()});
+    if (!r.ok) {
+      document.getElementById('users-tbody').innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:24px">${r.status === 404 ? 'Multi-user mode not enabled (no users.toml found)' : 'Error ' + r.status}</td></tr>`;
+      return;
+    }
+    const d = await r.json();
+    const users = d.users || [];
+    const tbody = document.getElementById('users-tbody');
+    if (!users.length) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:24px">No users yet. Click "Add User" to create the first hosting account.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = users.map(u => `
+      <tr>
+        <td><strong>${esc(u.username)}</strong></td>
+        <td class="td-mono" style="color:var(--text3)">${u.id.slice(0,12)}…</td>
+        <td>${(u.domains||[]).map(d => `<span class="tag">${esc(d)}</span>`).join('') || '<span style="color:var(--text3)">none</span>'}</td>
+        <td>${u.quota_bw ? fmtBytes(u.quota_bw)+'/day' : '<span style="color:var(--text3)">unlimited</span>'}</td>
+        <td>${u.enabled ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-red">Disabled</span>'}</td>
+        <td>${u.admin ? '<span class="badge badge-purple">Admin</span>' : '<span class="badge badge-gray">User</span>'}</td>
+        <td class="td-actions">
+          <button class="btn btn-danger btn-xs" onclick="deleteUser('${u.id}','${esc(u.username)}')">Delete</button>
+        </td>
+      </tr>
+    `).join('');
+    // Populate SSH user select
+    const sel = document.getElementById('ssh-user-select');
+    sel.innerHTML = '<option value="">— select a user —</option>' + users.map(u => `<option value="${u.id}">${esc(u.username)}</option>`).join('');
+  } catch(e) {
+    document.getElementById('users-tbody').innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--red);padding:24px">Failed to load users: ${esc(e.message)}</td></tr>`;
+  }
 }
 
-async function deleteUser(id){
-  if(!confirm('Delete this user?'))return;
-  await fetch(API+'/api/users/'+id,{method:'DELETE',headers:hdr()});
-  toast('User deleted');loadUsers();
+function openAddUser() {
+  document.getElementById('nu-username').value = '';
+  document.getElementById('nu-domains').value = '';
+  document.getElementById('nu-bw').value = '0';
+  document.getElementById('nu-conn').value = '0';
+  openModal('modal-add-user');
 }
 
-function openCreateUser(){openModal('create-user-modal');document.getElementById('new-username').focus();}
-async function createUser(){
-  const username=document.getElementById('new-username').value.trim();
-  const domains=document.getElementById('new-domains').value.split(',').map(d=>d.trim()).filter(Boolean);
-  if(!username)return toast('Username required','error');
-  const r=await fetch(API+'/api/users',{method:'POST',headers:{...hdr(),'Content-Type':'application/json'},body:JSON.stringify({username,domains})});
-  const d=await r.json();
-  if(d.error)return toast(d.error,'error');
-  closeModal('create-user-modal');
-  document.getElementById('api-key-modal-key').textContent=d.api_key;
-  document.getElementById('api-key-modal-key').onclick=()=>{navigator.clipboard.writeText(d.api_key);toast('Copied!');};
-  openModal('api-key-modal');
+async function createUser() {
+  const username = document.getElementById('nu-username').value.trim();
+  if (!username) { toast('Username required', 'err'); return; }
+  const domains = document.getElementById('nu-domains').value.trim().split('\n').map(s=>s.trim()).filter(Boolean);
+  const body = {username, domains};
+  try {
+    const r = await fetch(API + '/api/users', {method:'POST', headers: hdr(), body: JSON.stringify(body)});
+    const d = await r.json();
+    if (!r.ok) { toast('Error: ' + (d.error || r.status), 'err'); return; }
+    closeModal('modal-add-user');
+    document.getElementById('new-user-key-display').textContent = d.api_key || '';
+    openModal('modal-user-key');
+    loadUsers();
+    toast('User ' + username + ' created');
+  } catch(e) { toast('Request failed: ' + e.message, 'err'); }
+}
+
+async function deleteUser(id, username) {
+  if (!confirm(`Delete user "${username}"? This is irreversible.`)) return;
+  try {
+    const r = await fetch(API + '/api/users/' + id, {method:'DELETE', headers: hdr()});
+    if (r.ok) { toast('User deleted'); loadUsers(); }
+    else { const d = await r.json(); toast('Error: ' + d.error, 'err'); }
+  } catch(e) { toast('Request failed: ' + e.message, 'err'); }
+}
+
+function copyNewUserKey() {
+  const v = document.getElementById('new-user-key-display').textContent;
+  navigator.clipboard.writeText(v).then(() => toast('Copied!'));
+}
+
+// ── SSH Keys (local storage, no server-side API yet) ───────────────────────────
+function loadSshPanel() {
   loadUsers();
 }
 
-let logTimer=null;let logLastLen=0;
-function startLogs(){if(logTimer)return;fetchLogs();logTimer=setInterval(fetchLogs,3000);}
-async function fetchLogs(){
-  try{
-    const r=await fetch(API+'/api/logs?n=200',{headers:hdr()});
-    if(!r.ok)return;
-    const d=await r.json();
-    const lines=d.lines||[];
-    if(lines.length===logLastLen)return;
-    logLastLen=lines.length;
-    const el=document.getElementById('log-lines');
-    el.innerHTML=lines.map(l=>{
-      const cls=l.match(/" (5\d\d) /)?'log-5xx':l.match(/" (4\d\d) /)?'log-4xx':l.match(/" (3\d\d) /)?'log-3xx':'log-2xx';
-      return '<div class=log-line +cls+>'+escHtml(l)+'</div>';
-    }).join('');
-    if(document.getElementById('log-follow').checked){
-      document.getElementById('log-container').scrollTop=99999;
+function loadSshKeys(userId) {
+  currentSshUser = userId;
+  const panel = document.getElementById('ssh-keys-panel');
+  const noUser = document.getElementById('ssh-no-user');
+  if (!userId) { panel.style.display='none'; noUser.style.display=''; return; }
+  panel.style.display = ''; noUser.style.display = 'none';
+  if (!sshKeys[userId]) sshKeys[userId] = JSON.parse(localStorage.getItem('rn_ssh_' + userId) || '[]');
+  renderSshKeys(userId);
+}
+
+function renderSshKeys(userId) {
+  const keys = sshKeys[userId] || [];
+  const list = document.getElementById('ssh-keys-list');
+  const username = document.getElementById('ssh-user-select').options[document.getElementById('ssh-user-select').selectedIndex]?.text || '';
+  document.getElementById('ssh-keys-title').textContent = username + ' — Authorized Keys';
+  if (!keys.length) {
+    list.innerHTML = '<p style="color:var(--text3);font-size:13px;padding:12px 0">No SSH keys yet. Add a public key to allow SSH/SFTP access for this user.</p>';
+    return;
+  }
+  list.innerHTML = `<table><thead><tr><th>Label</th><th>Key fingerprint</th><th>Added</th><th>Actions</th></tr></thead><tbody>
+    ${keys.map((k,i) => `<tr>
+      <td>${esc(k.label||'(unlabeled)')}</td>
+      <td class="td-mono" style="color:var(--text2);font-size:11px">${esc(k.key.slice(0,60))}…</td>
+      <td style="color:var(--text3);font-size:12px">${k.added||'—'}</td>
+      <td><button class="btn btn-danger btn-xs" onclick="removeSshKey('${userId}',${i})">Remove</button></td>
+    </tr>`).join('')}
+  </tbody></table>`;
+}
+
+function openAddKey() {
+  document.getElementById('key-label').value = '';
+  document.getElementById('key-value').value = '';
+  openModal('modal-add-key');
+}
+
+function addSshKey() {
+  const label = document.getElementById('key-label').value.trim();
+  const key = document.getElementById('key-value').value.trim();
+  if (!key || !key.startsWith('ssh-')) { toast('Invalid public key format', 'err'); return; }
+  if (!sshKeys[currentSshUser]) sshKeys[currentSshUser] = [];
+  sshKeys[currentSshUser].push({label, key, added: new Date().toISOString().slice(0,10)});
+  localStorage.setItem('rn_ssh_' + currentSshUser, JSON.stringify(sshKeys[currentSshUser]));
+  closeModal('modal-add-key');
+  renderSshKeys(currentSshUser);
+  toast('SSH key added');
+}
+
+function removeSshKey(userId, idx) {
+  if (!confirm('Remove this SSH key?')) return;
+  sshKeys[userId].splice(idx, 1);
+  localStorage.setItem('rn_ssh_' + userId, JSON.stringify(sshKeys[userId]));
+  renderSshKeys(userId);
+  toast('Key removed');
+}
+
+// ── Upstreams ──────────────────────────────────────────────────────────────────
+async function loadUpstreams() {
+  try {
+    const r = await fetch(API + '/api/system', {headers: hdr()});
+    const d = await r.json();
+    const groups = d.upstream_groups || [];
+    const tbody = document.getElementById('upstreams-tbody');
+    if (!groups.length) {
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:24px">No upstream groups configured.</td></tr>`;
+      return;
     }
-  }catch(e){console.warn('logs',e);}
-}
-function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
-
-async function loadSettings(){
-  const r=await fetch(API+'/api/system',{headers:hdr()});
-  const d=await r.json();
-  document.getElementById('settings-api-key').textContent=apiKey?apiKey.slice(0,12)+'...(stored)':'Not set';
-  const tb=document.getElementById('sysinfo-table');
-  tb.innerHTML=[
-    ['Version',d.version||'—'],
-    ['Uptime',fmtUptime(d.uptime_seconds||0)],
-    ['Servers',d.servers||0],
-    ['Workers','tokio async (unlimited)'],
-  ].map(([k,v])=>`<tr><td style="color:var(--text2);width:40%">${k}</td><td>${v}</td></tr>`).join('');
+    tbody.innerHTML = groups.map(g => `<tr>
+      <td><strong>${esc(g.name)}</strong></td>
+      <td><span class="badge badge-blue">${esc(g.policy||'round-robin')}</span></td>
+      <td>${(g.peers||[]).map(p => `<span class="tag">${esc(p)}</span>`).join(' ')}</td>
+      <td style="color:var(--text2);font-size:12px">${g.health_interval ? g.health_interval+'s' : '—'}</td>
+    </tr>`).join('');
+  } catch(e) { document.getElementById('upstreams-tbody').innerHTML = `<tr><td colspan="4" style="color:var(--red);padding:12px">Error: ${esc(e.message)}</td></tr>`; }
 }
 
-async function reload(){
-  const r=await fetch(API+'/api/reload',{method:'POST',headers:hdr()});
-  if(r.ok)toast('Config reloaded');else toast('Reload failed','error');
+// ── Logs ───────────────────────────────────────────────────────────────────────
+function startLogs() {
+  fetchLogs();
+  logInterval = setInterval(fetchLogs, 3000);
 }
 
-setInterval(fetchStats,2000);
-if(!apiKey){showLoginModal();}else{fetchStats();}
+async function fetchLogs() {
+  try {
+    const r = await fetch(API + '/api/logs?n=500', {headers: hdr()});
+    if (!r.ok) return;
+    const d = await r.json();
+    logLines = d.lines || [];
+    renderLogs();
+  } catch(e) {}
+}
+
+function renderLogs() {
+  const filter = document.getElementById('log-filter').value.toLowerCase();
+  const filtered = filter ? logLines.filter(l => l.toLowerCase().includes(filter)) : logLines;
+  set('log-count', filtered.length + ' lines');
+  const out = document.getElementById('log-out');
+  out.innerHTML = filtered.map(l => {
+    const cls = l.match(/ (5\d\d) /) ? 'log-5xx' : l.match(/ (4\d\d) /) ? 'log-4xx' : l.match(/ (3\d\d) /) ? 'log-3xx' : l.match(/ (2\d\d) /) ? 'log-2xx' : 'log-default';
+    return `<div class="log-line ${cls}">${esc(l)}</div>`;
+  }).join('');
+  if (document.getElementById('log-follow').checked) { out.scrollTop = 99999; }
+}
+
+function clearLogs() { logLines = []; renderLogs(); }
+
+// ── Settings ───────────────────────────────────────────────────────────────────
+async function loadSettings() {
+  try {
+    const r = await fetch(API + '/api/system', {headers: hdr()});
+    const d = await r.json();
+    set('ver-badge', 'v' + (d.version||'?'));
+    document.getElementById('sysinfo-rows').innerHTML = [
+      ['Version', 'v' + (d.version||'?')],
+      ['Uptime', fmtUptime(d.uptime_seconds||0)],
+      ['Server blocks', d.server_blocks||d.servers||0],
+      ['Config path', d.config||'—'],
+      ['SIMD level', d.simd||'—'],
+    ].map(([k,v]) => `<div class="info-row"><span class="info-key">${k}</span><span class="info-val">${esc(String(v))}</span></div>`).join('');
+    document.getElementById('key-display').textContent = apiKey ? apiKey.slice(0,8)+'…'+apiKey.slice(-4) : '—';
+  } catch(e) {}
+}
+
+async function reloadCfg() {
+  try {
+    const r = await fetch(API + '/api/reload', {method:'POST', headers: hdr()});
+    if (r.ok) toast('Config reloaded');
+    else toast('Reload failed: ' + r.status, 'err');
+  } catch(e) { toast('Request failed: ' + e.message, 'err'); }
+}
+
+function copyKey() {
+  navigator.clipboard.writeText(apiKey).then(() => toast('API key copied'));
+}
+
+function updateKey() {
+  const v = document.getElementById('new-key-input').value.trim();
+  if (!v) return;
+  apiKey = v;
+  localStorage.setItem('rn_key', v);
+  document.getElementById('key-display').textContent = v.slice(0,8)+'…'+v.slice(-4);
+  document.getElementById('new-key-input').value = '';
+  toast('API key updated');
+}
+
+// ── Modal helpers ──────────────────────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.overlay').forEach(el => {
+  el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
+});
+
+// ── Toast ──────────────────────────────────────────────────────────────────────
+function toast(msg, type='ok') {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.getElementById('toast').appendChild(el);
+  setTimeout(() => { el.style.animation = 'fadeOut .3s ease forwards'; setTimeout(() => el.remove(), 300); }, 3000);
+}
+
+// ── Formatters ─────────────────────────────────────────────────────────────────
+function fmtNum(n) {
+  if (n >= 1e9) return (n/1e9).toFixed(1)+'B';
+  if (n >= 1e6) return (n/1e6).toFixed(1)+'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1)+'K';
+  return String(n);
+}
+function fmtBytes(b) {
+  if (b >= 1073741824) return (b/1073741824).toFixed(2)+' GB';
+  if (b >= 1048576) return (b/1048576).toFixed(1)+' MB';
+  if (b >= 1024) return (b/1024).toFixed(1)+' KB';
+  return b+' B';
+}
+function fmtLatency(us) {
+  if (!us) return '—';
+  if (us < 1000) return us+'µs';
+  if (us < 1000000) return (us/1000).toFixed(2)+'ms';
+  return (us/1000000).toFixed(2)+'s';
+}
+function fmtUptime(s) {
+  const d=Math.floor(s/86400), h=Math.floor((s%86400)/3600), m=Math.floor((s%3600)/60);
+  if (d>0) return d+'d '+h+'h';
+  if (h>0) return h+'h '+m+'m';
+  return m+'m '+Math.floor(s%60)+'s';
+}
+function set(id, v) { const el=document.getElementById(id); if(el) el.textContent = v; }
+function setPct(id, pct) { const el=document.getElementById(id); if(el) el.style.width = Math.min(100,pct).toFixed(1)+'%'; }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── Boot ───────────────────────────────────────────────────────────────────────
+if (!apiKey) {
+  showLogin();
+} else {
+  init();
+}
 </script>
 </body>
 </html>
