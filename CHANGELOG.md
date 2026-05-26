@@ -4,9 +4,9 @@
 
 ### Security
 
-- **B-001 fixed**: `generate_id()` now uses `/dev/urandom` (16 random bytes) instead of nanosecond timestamp — closes #29.
-- **B-002 fixed**: Username validated in `POST /api/users` — only alphanumeric, `-`, `_`, max 32 chars. Rejects path traversal attempts — closes #30.
-- **A-006 fixed**: bcrypt errors logged with `tracing::warn` before returning false — closes #31.
+- **B-001 fixed**: `generate_id()` now uses `/dev/urandom` (16 random bytes) instead of nanosecond timestamp — closes #28.
+- **B-002 fixed**: Username validated in `POST /api/users` — only alphanumeric, `-`, `_`, max 32 chars. Rejects path traversal attempts — closes #29.
+- **A-006 fixed**: bcrypt errors logged with `tracing::warn` before returning false — closes #30.
 
 ---
 
