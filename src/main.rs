@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use clap::Parser;
-use tracing::info;
+use tracing::{info, warn};
 
 mod api;
 mod tls;
@@ -29,6 +29,7 @@ mod http2;
 mod ioring;
 mod icmp_guard;
 mod scan_detector;
+mod xdp;
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
@@ -67,6 +68,16 @@ async fn main() -> Result<()> {
     info!("RunNginx v{} — SIMD level: {:?}", env!("CARGO_PKG_VERSION"), simd::simd_level());
     #[cfg(feature = "io_uring")]
     crate::ioring::init();
+
+    // XDP availability — log result, fall back silently if unavailable.
+    {
+        // xdp.enabled not exposed in RunNginx config yet — check system availability for info
+        if xdp::check_available() {
+            info!("XDP         : available (kernel + bpf fs present)");
+        } else {
+            info!("XDP         : not available on this host (standard TCP path active)");
+        }
+    }
 
     let cfg = config::load(&cli.config)?;
     info!("config OK: {} server block(s)", cfg.http.servers.len());
