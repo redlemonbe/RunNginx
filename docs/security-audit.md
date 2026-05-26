@@ -433,7 +433,7 @@ Impact: Low — attacker sees one 404, then gets blocked. No sensitive data leak
 | **Source** | [AI-INTERNAL] |
 | **File** | `src/http2/mod.rs:31` |
 | **Discovered** | 2026-05-26 |
-| **Status** | ⏳ Open |
+| **Status** | ✅ Fixed — v0.4.2 |
 
 **Threat model:** An HTTP/2 client that floods the server with concurrent streams.
 
@@ -456,7 +456,7 @@ conn.set_max_concurrent_streams(Some(256));
 | **Source** | [AI-INTERNAL] |
 | **File** | `src/websocket/mod.rs:36` |
 | **Discovered** | 2026-05-26 |
-| **Status** | ⏳ Open |
+| **Status** | ✅ Fixed — v0.4.2 |
 
 **Threat model:** Attacker who controls HTTP header values in a WebSocket upgrade request (e.g., a malicious `Sec-WebSocket-Protocol` header containing CRLF).
 
@@ -550,8 +550,8 @@ This is a low-impact DoS that degrades performance but does not expose data or a
 | 8 | io_uring zero-copy not audited | A | Open |
 | 9 | ICMP guard degrades on VMs without inet filter | C | Accepted (C-001) |
 | 10 | Scan detector first probe response is 404 | C | Open (C-003) |
-| 11 | HTTP/2 per-stream task spawn unbounded | D | Open (D-001) |
-| 12 | WebSocket header CRLF injection | D | Open (D-002) |
+| 11 | HTTP/2 per-stream task spawn unbounded | D | Fixed v0.4.2 (D-001) |
+| 12 | WebSocket header CRLF injection | D | Fixed v0.4.2 (D-002) |
 | 13 | ACME renewal uses mtime not cert expiry | D | Open (D-003) |
 | 14 | Cache caches 404 responses | D | Accepted (D-004) |
 | 15 | Cache eviction silently drops when full | D | Accepted (D-005) |
