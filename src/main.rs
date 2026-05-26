@@ -107,6 +107,7 @@ async fn main() -> Result<()> {
         config_path: cli.config.clone(),
         reload_tx,
         log_ring,
+        sessions: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     });
 
     let zones = limit_req::ZoneRegistry::new();

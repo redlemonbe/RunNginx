@@ -3,16 +3,21 @@
 // Auth: Bearer token (constant-time comparison via subtle crate)
 // Rate limit: 30 RPS/IP (applied to authenticated endpoints only)
 
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Instant;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use subtle::ConstantTimeEq;
 use tracing::warn;
 
 use crate::config::types::HttpBlock;
 use crate::stats::{RateLimiter, Stats};
+
+const SESSION_TTL: Duration = Duration::from_secs(8 * 3600);
+pub(crate) struct SessionEntry { expires: Instant }
+type SessionStore = Arc<Mutex<HashMap<String, SessionEntry>>>;
 
 // ── API context (shared across connections) ───────────────────────────────────
 
@@ -23,6 +28,7 @@ pub struct ApiContext {
     pub config_path: PathBuf,
     pub reload_tx:  tokio::sync::watch::Sender<()>,
     pub log_ring:   crate::server::access_log::LogRing,
+    pub sessions:   SessionStore,
 }
 
 // ── Route dispatcher ──────────────────────────────────────────────────────────
@@ -30,6 +36,7 @@ pub struct ApiContext {
 /// Returns Some(response_bytes) if the path is an API route, None otherwise.
 /// If Some, the caller should not route to static/proxy handlers.
 const WEBUI_HTML: &str = include_str!("webui.html");
+const LOGIN_HTML: &str = include_str!("login.html");
 
 fn serve_webui() -> Vec<u8> {
     let body = WEBUI_HTML.as_bytes();
@@ -47,6 +54,95 @@ Connection: keep-alive
     r
 }
 
+fn serve_login() -> Vec<u8> {
+    let body = LOGIN_HTML.as_bytes();
+    let mut r = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n",
+        body.len()
+    ).into_bytes();
+    r.extend_from_slice(body);
+    r
+}
+
+fn redirect_to_login() -> Vec<u8> {
+    b"HTTP/1.1 302 Found\r\nLocation: /login\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()
+}
+
+fn get_session_token(headers: &[(String, String)]) -> Option<String> {
+    headers.iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("cookie"))
+        .and_then(|(_, v)| {
+            v.split(';')
+                .map(|s| s.trim())
+                .find(|s| s.starts_with("session="))
+                .and_then(|s| s.strip_prefix("session="))
+                .map(|t| t.to_string())
+        })
+}
+
+fn has_valid_session(headers: &[(String, String)], ctx: &Arc<ApiContext>) -> bool {
+    let token = match get_session_token(headers) {
+        Some(t) => t,
+        None => return false,
+    };
+    let store = ctx.sessions.lock().unwrap_or_else(|e| e.into_inner());
+    store.get(&token).map(|e| e.expires > Instant::now()).unwrap_or(false)
+}
+
+fn rand_bytes_32() -> [u8; 32] {
+    let mut buf = [0u8; 32];
+    if let Ok(bytes) = std::fs::read("/dev/urandom") {
+        if bytes.len() >= 32 { buf.copy_from_slice(&bytes[..32]); }
+    }
+    buf
+}
+
+fn verify_login_credentials(username: &str, password: &str, ctx: &Arc<ApiContext>) -> bool {
+    let admin_user = ctx.http.webui_admin_user.as_str();
+    let admin_pass = ctx.http.webui_admin_password.as_str();
+    let u_ok: bool = username.as_bytes().ct_eq(admin_user.as_bytes()).into();
+    let p_ok: bool = password.as_bytes().ct_eq(admin_pass.as_bytes()).into();
+    u_ok && p_ok
+}
+
+fn handle_login_post(body: &[u8], ctx: &Arc<ApiContext>) -> Vec<u8> {
+    let parsed: serde_json::Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(_) => return json_response(400, r#"{"error":"Bad request"}"#),
+    };
+    let username = parsed["username"].as_str().unwrap_or("").to_string();
+    let password = parsed["password"].as_str().unwrap_or("").to_string();
+
+    if !verify_login_credentials(&username, &password, ctx) {
+        std::thread::sleep(Duration::from_millis(300));
+        return json_response(401, r#"{"error":"Invalid username or password"}"#);
+    }
+
+    use std::fmt::Write as FmtWrite;
+    let mut token = String::with_capacity(64);
+    for b in &rand_bytes_32() { write!(token, "{:02x}", b).unwrap(); }
+
+    {
+        let mut store = ctx.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        store.retain(|_, e| e.expires > Instant::now());
+        store.insert(token.clone(), SessionEntry { expires: Instant::now() + SESSION_TTL });
+    }
+
+    let cookie = format!("session={}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800", token);
+    format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: {}\r\nContent-Length: 10\r\nConnection: close\r\n\r\n{{\"ok\":true}}",
+        cookie
+    ).into_bytes()
+}
+
+fn handle_logout(headers: &[(String, String)], ctx: &Arc<ApiContext>) -> Vec<u8> {
+    if let Some(token) = get_session_token(headers) {
+        let mut store = ctx.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        store.remove(&token);
+    }
+    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: session=; Path=/; HttpOnly; Max-Age=0\r\nContent-Length: 10\r\nConnection: close\r\n\r\n{\"ok\":true}".to_vec()
+}
+
 pub fn handle_api(
     path:    &str,
     query:   &str,
@@ -59,13 +155,26 @@ pub fn handle_api(
     match path {
         "/health"  => Some(health_response()),
         "/metrics" => Some(prometheus_metrics(ctx)),
-        "/ui" | "/ui/" => Some(serve_webui()),
-        p if p.starts_with("/api/") => Some(handle_api_authenticated(p, query, method, headers, body, peer_ip, ctx)),
+        "/login" if method == "GET"  => Some(serve_login()),
+        "/login" if method == "POST" => Some(handle_login_post(body, ctx)),
+        "/logout" if method == "POST" => Some(handle_logout(headers, ctx)),
+        "/ui" | "/ui/" => {
+            if !has_valid_session(headers, ctx) {
+                return Some(redirect_to_login());
+            }
+            Some(serve_webui())
+        }
+        p if p.starts_with("/api/") => {
+            if !has_valid_session(headers, ctx) && !is_authorized(headers, &ctx.http.api_key) {
+                return Some(json_response(401, r#"{"error":"unauthorized"}"#));
+            }
+            Some(handle_api_inner(p, query, method, headers, body, peer_ip, ctx))
+        }
         _ => None,
     }
 }
 
-fn handle_api_authenticated(
+fn handle_api_inner(
     path:    &str,
     query:   &str,
     method:  &str,
@@ -79,10 +188,6 @@ fn handle_api_authenticated(
         return json_response(429, r#"{"error":"rate limit exceeded"}"#);
     }
 
-    // Auth check.
-    if !is_authorized(headers, &ctx.http.api_key) {
-        return json_response(401, r#"{"error":"unauthorized"}"#);
-    }
 
     let body_str = String::from_utf8_lossy(body);
     match (method, path) {

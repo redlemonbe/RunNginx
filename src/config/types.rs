@@ -49,6 +49,8 @@ pub struct HttpBlock {
     pub keepalive_timeout: u64,
     pub send_timeout: u64,
     pub api_key: String,
+    pub webui_admin_user: String,
+    pub webui_admin_password: String,
     pub limit_req_zones: Vec<LimitReqZoneDef>,
     pub upstream_groups: Vec<UpstreamGroupDef>,
 }
@@ -66,6 +68,8 @@ impl Default for HttpBlock {
             keepalive_timeout: DEFAULT_KEEPALIVE_TIMEOUT_S,
             send_timeout: 60,
             api_key: String::new(),
+            webui_admin_user: "admin".into(),
+            webui_admin_password: "admin".into(),
             limit_req_zones: Vec::new(),
             upstream_groups: Vec::new(),
             brotli: false,

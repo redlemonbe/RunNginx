@@ -179,27 +179,6 @@ canvas{display:block}
 <body>
 
 <!-- Login screen -->
-<div class="login-screen" id="login-screen">
-  <div class="login-box">
-    <div class="login-logo">
-      <div class="icon"><svg viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg></div>
-      <span class="name">RunNginx</span>
-    </div>
-    <div class="login-title">Management Console</div>
-    <div class="login-sub">Enter your admin API key to continue</div>
-    <div class="login-error" id="login-err">Invalid API key</div>
-    <div class="form-group" style="margin-bottom:14px">
-      <label class="form-label">API Key</label>
-      <input class="input" id="login-key" type="password" placeholder="Paste your API key…" autocomplete="off">
-    </div>
-    <label class="checkbox" style="margin-bottom:20px">
-      <input type="checkbox" id="login-remember" checked>
-      <span>Remember in this browser</span>
-    </label>
-    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="doLogin()">Sign in</button>
-  </div>
-</div>
-
 <!-- Sidebar -->
 <div class="sidebar">
   <div class="logo">
@@ -662,9 +641,22 @@ canvas{display:block}
 <script>
 'use strict';
 
+// Redirect to /login on 401
+(function(){
+  const _fetch = window.fetch.bind(window);
+  window.fetch = function(...args){
+    return _fetch(...args).then(r=>{
+      if(r.status===401 && !String(args[0]).endsWith('/login')){
+        window.location.href='/login';
+      }
+      return r;
+    });
+  };
+})();
+
 // ── State ──────────────────────────────────────────────────────────────────────
 let API = '';
-let apiKey = localStorage.getItem('rn_key') || '';
+// auth via session cookie
 let statsCache = {};
 let rpsHistory = new Array(60).fill(0);
 let prevReqs = null;
@@ -677,38 +669,15 @@ let currentSshUser = '';
 
 // ── Auth & Init ────────────────────────────────────────────────────────────────
 function hdr() {
-  return {'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json'};
+  return {'Content-Type': 'application/json'};
 }
 
-function logout() {
-  apiKey = '';
-  localStorage.removeItem('rn_key');
-  location.reload();
+async function logout() {
+  try { await fetch('/logout', {method:'POST'}); } catch(e) {}
+  window.location.href = '/login';
 }
 
-function showLogin() {
-  document.getElementById('login-screen').classList.add('open');
-}
 
-async function doLogin() {
-  const key = document.getElementById('login-key').value.trim();
-  if (!key) return;
-  const err = document.getElementById('login-err');
-  err.style.display = 'none';
-  try {
-    const r = await fetch(API + '/api/system', {headers: {'Authorization': 'Bearer ' + key}});
-    if (!r.ok) { err.style.display = ''; return; }
-    apiKey = key;
-    if (document.getElementById('login-remember').checked) localStorage.setItem('rn_key', key);
-    document.getElementById('login-screen').classList.remove('open');
-    init();
-  } catch(e) {
-    err.textContent = 'Connection failed: ' + e.message;
-    err.style.display = '';
-  }
-}
-
-document.getElementById('login-key').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
 
 function init() {
   startStats();
@@ -1097,7 +1066,7 @@ async function loadSettings() {
       ['Config path', d.config||'—'],
       ['SIMD level', d.simd||'—'],
     ].map(([k,v]) => `<div class="info-row"><span class="info-key">${k}</span><span class="info-val">${esc(String(v))}</span></div>`).join('');
-    document.getElementById('key-display').textContent = apiKey ? apiKey.slice(0,8)+'…'+apiKey.slice(-4) : '—';
+
   } catch(e) {}
 }
 
@@ -1109,19 +1078,7 @@ async function reloadCfg() {
   } catch(e) { toast('Request failed: ' + e.message, 'err'); }
 }
 
-function copyKey() {
-  navigator.clipboard.writeText(apiKey).then(() => toast('API key copied'));
-}
 
-function updateKey() {
-  const v = document.getElementById('new-key-input').value.trim();
-  if (!v) return;
-  apiKey = v;
-  localStorage.setItem('rn_key', v);
-  document.getElementById('key-display').textContent = v.slice(0,8)+'…'+v.slice(-4);
-  document.getElementById('new-key-input').value = '';
-  toast('API key updated');
-}
 
 // ── Modal helpers ──────────────────────────────────────────────────────────────
 function openModal(id) { document.getElementById(id).classList.add('open'); }
@@ -1169,11 +1126,7 @@ function setPct(id, pct) { const el=document.getElementById(id); if(el) el.style
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 // ── Boot ───────────────────────────────────────────────────────────────────────
-if (!apiKey) {
-  showLogin();
-} else {
-  init();
-}
+init();
 </script>
 </body>
 </html>

@@ -376,6 +376,18 @@ fn parse_http_block(tokens: &[Token], pos: &mut usize, config_path: &Path, depth
                 http.api_key = v;
                 expect_semi(tokens, pos)?;
             }
+            "webui_admin_user" => {
+                *pos += 1;
+                let v = expect_word(tokens, pos)?;
+                http.webui_admin_user = v;
+                expect_semi(tokens, pos)?;
+            }
+            "webui_admin_password" => {
+                *pos += 1;
+                let v = expect_word(tokens, pos)?;
+                http.webui_admin_password = v;
+                expect_semi(tokens, pos)?;
+            }
             "brotli" => {
                 *pos += 1;
                 let v = expect_word(tokens, pos)?;
