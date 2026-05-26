@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports, unused_variables, unused_mut)]
 use std::path::PathBuf;
 use std::sync::Arc;
 
