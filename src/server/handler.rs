@@ -19,7 +19,7 @@ use subtle::ConstantTimeEq;
 struct ParsedRequest {
     method:      String,
     path:        String,
-    _query:      String,
+    query:       String,
     version_1_0: bool,
     headers:     Vec<(String, String)>,
     host:        String,
@@ -184,7 +184,7 @@ async fn dispatch(
     }
 
     let mut req = ParsedRequest {
-        method, path, _query: query, version_1_0, headers, host, content_len,
+        method, path, query, version_1_0, headers, host, content_len,
     };
 
     // Route to server block.
@@ -434,7 +434,12 @@ async fn dispatch(
             if req.path.ends_with('/') || !std::path::Path::new(&script_path).extension().is_some() {
                 script_path = format!("{}/{}", script_path.trim_end_matches('/'), index);
             }
-            crate::fastcgi::fastcgi_request(fc, &req.method, &req.path, &script_path, &req.headers, body_raw).await
+            let full_uri = if req.query.is_empty() {
+                req.path.clone()
+            } else {
+                format!("{}?{}", req.path, req.query)
+            };
+            crate::fastcgi::fastcgi_request(fc, &req.method, &full_uri, &script_path, &req.headers, body_raw).await
         }
     };
 
