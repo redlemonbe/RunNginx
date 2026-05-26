@@ -9,7 +9,6 @@
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 
 use anyhow::{bail, Context, Result};
 use regex::Regex;
@@ -245,7 +244,7 @@ fn parse_http_block(tokens: &[Token], pos: &mut usize, config_path: &Path, depth
             other => { bail!("unexpected token in http block: {:?}", other); }
         }
 
-        match peek_word(tokens, *pos).unwrap() {
+        match peek_word(tokens, *pos).expect("unreachable: Word token confirmed above") {
             "gzip" => {
                 *pos += 1;
                 let v = expect_word(tokens, pos)?;
@@ -372,7 +371,7 @@ fn parse_server_block(tokens: &[Token], pos: &mut usize, config_path: &Path, dep
             other => bail!("unexpected token in server block: {:?}", other),
         }
 
-        match peek_word(tokens, *pos).unwrap() {
+        match peek_word(tokens, *pos).expect("unreachable: Word token confirmed above") {
             "listen" => {
                 *pos += 1;
                 let directive = parse_listen(tokens, pos)?;
@@ -579,7 +578,7 @@ fn parse_location(tokens: &[Token], pos: &mut usize, config_path: &Path, depth: 
             other => bail!("unexpected token in location block: {:?}", other),
         }
 
-        match peek_word(tokens, *pos).unwrap() {
+        match peek_word(tokens, *pos).expect("unreachable: Word token confirmed above") {
             "root" => {
                 *pos += 1;
                 let p = expect_word(tokens, pos)?;
@@ -777,15 +776,37 @@ fn parse_proxy_pass(raw: &str) -> Result<ProxyConfig> {
 
     let host = parsed.host_str().unwrap_or("");
 
-    // Block loopback / unspecified
+    // Block all private / reserved addresses (SSRF prevention).
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
         if ip.is_loopback() || ip.is_unspecified() {
             bail!("proxy_pass '{}': loopback/unspecified address blocked (SSRF)", raw);
         }
-        if let std::net::IpAddr::V4(v4) = ip {
-            if v4.is_private() || v4.is_link_local() {
-                // RFC-1918 / link-local — only allowed with explicit allow flag (not yet implemented)
-                bail!("proxy_pass '{}': private/link-local address blocked (SSRF). Use proxy_allow_internal on;", raw);
+        match ip {
+            std::net::IpAddr::V4(v4) => {
+                if v4.is_private() || v4.is_link_local() {
+                    bail!("proxy_pass '{}': private/link-local address blocked (SSRF). Use proxy_allow_internal on;", raw);
+                }
+            }
+            std::net::IpAddr::V6(v6) => {
+                let s = v6.segments();
+                // fe80::/10 link-local
+                if s[0] & 0xffc0 == 0xfe80 {
+                    bail!("proxy_pass '{}': IPv6 link-local blocked (SSRF)", raw);
+                }
+                // fc00::/7 ULA (unique local addresses)
+                if s[0] & 0xfe00 == 0xfc00 {
+                    bail!("proxy_pass '{}': IPv6 ULA blocked (SSRF)", raw);
+                }
+                // ::ffff:0:0/96 IPv4-mapped — check the embedded IPv4 part
+                if s[0]==0 && s[1]==0 && s[2]==0 && s[3]==0 && s[4]==0 && s[5]==0xffff {
+                    let v4 = std::net::Ipv4Addr::new(
+                        (s[6] >> 8) as u8, s[6] as u8,
+                        (s[7] >> 8) as u8, s[7] as u8,
+                    );
+                    if v4.is_private() || v4.is_link_local() || v4.is_loopback() {
+                        bail!("proxy_pass '{}': IPv4-mapped private address blocked (SSRF)", raw);
+                    }
+                }
             }
         }
     }
@@ -795,6 +816,8 @@ fn parse_proxy_pass(raw: &str) -> Result<ProxyConfig> {
         || host_lc.ends_with(".local")
         || host_lc == "metadata.google.internal"
         || host_lc == "169.254.169.254"
+        || host_lc == "fd00:ec2::254"  // AWS IMDSv2 IPv6
+        || host_lc == "metadata.internal"
     {
         bail!("proxy_pass '{}': blocked host (SSRF)", raw);
     }
