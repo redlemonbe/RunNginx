@@ -1,6 +1,74 @@
 [package]
-name = "RunNginx"
-version = "0.1.0"
-edition = "2024"
+name        = "runnginx"
+version     = "0.1.0"
+edition     = "2021"
+description = "High-performance nginx-compatible HTTP server — SIMD parsing, XDP kernel-bypass, no restart ever"
+license     = "AGPL-3.0-only"
+authors     = ["RedLemonBe <redlemonbe@codix.be>"]
+repository  = "https://github.com/redlemonbe/RunNginx"
+
+[[bin]]
+name = "runnginx"
+path = "src/main.rs"
+
+[features]
+default     = ["jemalloc"]
+jemalloc    = ["tikv-jemallocator"]
+tls         = ["rustls", "rustls-pemfile", "tokio-rustls", "rcgen"]
+xdp         = []
 
 [dependencies]
+# Async runtime
+tokio        = { version = "1", features = ["full"] }
+
+# HTTP
+bytes        = "1"
+httparse     = "1"
+
+# TLS — optional until Phase 2
+rustls       = { version = "0.23", optional = true, default-features = false, features = ["ring", "std"] }
+rustls-pemfile = { version = "2", optional = true }
+tokio-rustls = { version = "0.26", optional = true }
+rcgen        = { version = "0.13", optional = true, default-features = false, features = ["pem", "ring"] }
+
+# Logging / tracing
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Config / serialization
+serde        = { version = "1", features = ["derive"] }
+serde_json   = "1"
+regex        = "1"
+
+# Concurrency
+arc-swap     = "1"
+dashmap      = "6"
+smallvec     = { version = "1", features = ["union"] }
+ahash        = "0.8"
+
+# Utils
+clap         = { version = "4", features = ["derive"] }
+anyhow       = "1"
+thiserror    = "1"
+url          = "2"
+memchr       = "2"
+flate2       = "1"
+num_cpus     = "1"
+glob         = "0.3"
+subtle       = "2"
+hmac         = "0.12"
+sha2         = "0.10"
+hex          = "0.4"
+
+# Allocator
+tikv-jemallocator = { version = "0.6", optional = true }
+
+[profile.release]
+opt-level     = 3
+lto           = "fat"
+codegen-units = 1
+strip         = "symbols"
+panic         = "abort"
+
+[profile.release.build-override]
+opt-level = 3
