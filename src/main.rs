@@ -18,15 +18,13 @@ static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 #[derive(Parser)]
 #[command(name = "runnginx", version, about = "High-performance nginx-compatible HTTP server")]
 struct Cli {
-    /// Path to nginx.conf
     #[arg(short, long, default_value = "/etc/runnginx/nginx.conf")]
     config: PathBuf,
 
-    /// Log level (trace/debug/info/warn/error)
     #[arg(short, long, default_value = "info")]
     log_level: String,
 
-    /// Test config and exit
+    /// Test config and exit (nginx -t equivalent)
     #[arg(short = 't', long)]
     test: bool,
 }
@@ -35,7 +33,6 @@ struct Cli {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Init tracing.
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -43,31 +40,31 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    // Log SIMD dispatch level.
-    info!("SIMD level: {:?}", simd::simd_level());
+    info!("RunNginx v{} — SIMD level: {:?}", env!("CARGO_PKG_VERSION"), simd::simd_level());
 
-    // Load and validate config.
     let cfg = config::load(&cli.config)?;
-    info!("config loaded: {} server block(s)", cfg.http.servers.len());
+    info!("config OK: {} server block(s)", cfg.http.servers.len());
 
     if cli.test {
         info!("config test OK");
         return Ok(());
     }
 
-    // Bind listeners.
-    let http_block = cfg.http;
-    let servers: Arc<Vec<Arc<config::types::ServerBlock>>> =
-        Arc::new(http_block.servers.iter().map(|s| Arc::new(s.clone())).collect());
+    let http = Arc::new(cfg.http);
 
+    // Create access logger (uses http-level access_log directive).
+    let logger = Arc::new(server::access_log::Logger::new(&http.access_log));
+
+    // Bind one listener per (server × listen) directive.
     let mut handles = Vec::new();
 
-    for srv in http_block.servers.iter() {
+    for srv in &http.servers {
         for listen in &srv.listen {
             let listener = server::listener::Listener {
                 addr:    listen.addr,
                 tls:     srv.tls.as_ref().map(|t| Arc::new(t.clone())),
-                servers: Arc::clone(&servers),
+                http:    Arc::clone(&http),
+                logger:  Arc::clone(&logger),
             };
             handles.push(tokio::spawn(async move {
                 if let Err(e) = listener.run().await {
@@ -81,7 +78,6 @@ async fn main() -> Result<()> {
         anyhow::bail!("no listen directives found in config");
     }
 
-    // Wait for all listeners (run forever).
     for h in handles {
         let _ = h.await;
     }

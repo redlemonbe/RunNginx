@@ -1,11 +1,5 @@
 // TCP accept loop for HTTP/1.1 connections.
 // Spawns one tokio task per connection; each task drives keep-alive.
-// Security invariants enforced here (before any user data is read):
-//   - Per-IP connection limit (soft DoS mitigation).
-//   - Total connection count cap.
-//   - Client header read timeout (408 if exceeded).
-//   - keep-alive idle timeout.
-//   - keep-alive request count limit.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -16,15 +10,18 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
 
-use crate::config::types::{ServerBlock, TlsConfig};
+use crate::config::types::{HttpBlock, TlsConfig};
 use crate::http::limits::*;
+use crate::server::access_log::Logger;
+use crate::server::handler;
 
 // ── Listener handle ───────────────────────────────────────────────────────────
 
 pub struct Listener {
     pub addr:    SocketAddr,
     pub tls:     Option<Arc<TlsConfig>>,
-    pub servers: Arc<Vec<Arc<ServerBlock>>>,
+    pub http:    Arc<HttpBlock>,
+    pub logger:  Arc<Logger>,
 }
 
 impl Listener {
@@ -35,17 +32,16 @@ impl Listener {
         loop {
             match tcp.accept().await {
                 Ok((stream, peer)) => {
-                    let servers = Arc::clone(&self.servers);
-                    let tls_cfg = self.tls.clone();
+                    let http   = Arc::clone(&self.http);
+                    let logger = Arc::clone(&self.logger);
+                    let tls    = self.tls.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = handle_connection(stream, peer, servers, tls_cfg).await {
+                        if let Err(e) = handle_connection(stream, peer, http, logger, tls).await {
                             debug!("connection {} closed: {}", peer, e);
                         }
                     });
                 }
-                Err(e) => {
-                    warn!("accept error: {}", e);
-                }
+                Err(e) => warn!("accept error: {}", e),
             }
         }
     }
@@ -56,35 +52,35 @@ impl Listener {
 async fn handle_connection(
     stream:  TcpStream,
     peer:    SocketAddr,
-    servers: Arc<Vec<Arc<ServerBlock>>>,
+    http:    Arc<HttpBlock>,
+    logger:  Arc<Logger>,
     tls_cfg: Option<Arc<TlsConfig>>,
 ) -> Result<()> {
-    // TCP-level options.
     stream.set_nodelay(true)?;
 
-    if let Some(_tls) = tls_cfg {
-        // TLS upgrade path — implemented in Phase 2.
-        return Err(anyhow::anyhow!("TLS not yet implemented"));
+    if tls_cfg.is_some() {
+        return Err(anyhow::anyhow!("TLS not yet implemented (Phase 2)"));
     }
 
-    handle_plain(stream, peer, servers).await
+    handle_plain(stream, peer, http, logger).await
 }
 
 // ── Plain HTTP/1.1 keep-alive loop ────────────────────────────────────────────
 
 async fn handle_plain(
-    mut stream:  TcpStream,
-    peer:        SocketAddr,
-    servers:     Arc<Vec<Arc<ServerBlock>>>,
+    mut stream: TcpStream,
+    peer:       SocketAddr,
+    http:       Arc<HttpBlock>,
+    logger:     Arc<Logger>,
 ) -> Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    let mut buf = vec![0u8; crate::http::limits::MAX_HEADER_BUFFER + 1];
-    let mut requests: u64 = 0;
+    let mut buf       = vec![0u8; MAX_HEADER_BUFFER + DEFAULT_MAX_BODY_BYTES + 1];
+    let mut requests  = 0u64;
 
     loop {
         if requests >= MAX_KEEPALIVE_REQUESTS {
-            send_plain_response(&mut stream, 400, b"connection limit reached").await?;
+            let _ = stream.write_all(b"HTTP/1.1 400 Too Many Requests\r\nConnection: close\r\n\r\n").await;
             break;
         }
 
@@ -93,99 +89,30 @@ async fn handle_plain(
             Duration::from_secs(DEFAULT_CLIENT_HEADER_TIMEOUT_S),
             stream.read(&mut buf),
         ).await {
-            Err(_elapsed) => {
-                send_plain_response(&mut stream, 408, b"Request Timeout").await?;
+            Err(_) => {
+                let _ = stream.write_all(
+                    b"HTTP/1.1 408 Request Timeout\r\nConnection: close\r\n\r\n"
+                ).await;
                 break;
             }
             Ok(Err(e)) => return Err(e.into()),
-            Ok(Ok(0)) => break, // EOF
+            Ok(Ok(0)) => break,
             Ok(Ok(n)) => n,
         };
 
         requests += 1;
 
-        let response = handle_request(&buf[..n], &servers, peer);
-        let keep_alive = response.keep_alive;
+        let result = handler::handle(&buf[..n], peer, Arc::clone(&http), Arc::clone(&logger)).await;
+        let keep_alive = result.keep_alive;
 
-        stream.write_all(&response.bytes).await?;
+        stream.write_all(&result.bytes).await?;
         stream.flush().await?;
 
         if !keep_alive { break; }
+
+        // Keep-alive idle timeout between requests.
+        // We reuse the header timeout here for simplicity.
+        // A dedicated keepalive_timeout could be added later.
     }
-    Ok(())
-}
-
-// ── Request dispatch (stub — filled in Phase 2) ───────────────────────────────
-
-struct Response {
-    bytes:      Vec<u8>,
-    keep_alive: bool,
-}
-
-fn handle_request(
-    raw:     &[u8],
-    servers: &[Arc<ServerBlock>],
-    peer:    SocketAddr,
-) -> Response {
-    use crate::simd::{parse_request_line, parse_headers, is_uri_safe};
-
-    // 1. Parse request line.
-    let (req_line, rl_len) = match parse_request_line(raw) {
-        Ok(v) => v,
-        Err(e) => {
-            return bad_request(e);
-        }
-    };
-
-    // 2. URI security check.
-    if !is_uri_safe(req_line.uri) {
-        return bad_request("forbidden URI sequence");
-    }
-
-    // 3. Parse headers.
-    let (_headers, _hdrs_len) = match parse_headers(&raw[rl_len..]) {
-        Ok(v) => v,
-        Err(e) => {
-            return bad_request(e);
-        }
-    };
-
-    // 4. Route and respond — stub returns 501 until Phase 2 handlers are wired.
-    let body = b"not implemented\r\n";
-    let response = format!(
-        "HTTP/1.1 501 Not Implemented\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    );
-    let mut bytes = response.into_bytes();
-    bytes.extend_from_slice(body);
-
-    Response { bytes, keep_alive: false }
-}
-
-fn bad_request(reason: &str) -> Response {
-    let body = format!("Bad Request: {}\r\n", reason);
-    let response = format!(
-        "HTTP/1.1 400 Bad Request\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    );
-    let mut bytes = response.into_bytes();
-    bytes.extend_from_slice(body.as_bytes());
-    Response { bytes, keep_alive: false }
-}
-
-async fn send_plain_response(
-    stream:  &mut TcpStream,
-    status:  u16,
-    message: &[u8],
-) -> Result<()> {
-    use tokio::io::AsyncWriteExt;
-    let response = format!(
-        "HTTP/1.1 {} \r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        status,
-        message.len()
-    );
-    let mut out = response.into_bytes();
-    out.extend_from_slice(message);
-    stream.write_all(&out).await?;
     Ok(())
 }
