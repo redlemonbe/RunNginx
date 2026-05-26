@@ -192,7 +192,7 @@ This means 401 Unauthorized and 404 Not Found responses from API endpoints are l
 | **Source** | [AI-INTERNAL] |
 | **File** | `src/auth/mod.rs:36` |
 | **Discovered** | 2026-05-26 |
-| **Status** | ⏳ Open |
+| **Status** | ✅ Fixed — v0.1.9, closes #31 — errors now logged with tracing::warn |
 
 **Description:** `bcrypt::verify(password, &normalized).unwrap_or(false)` swallows errors. If the bcrypt crate returns an error for a malformed hash string (e.g., corrupted htpasswd entry), the result is `false` (denied) — this is the safe direction. However, it also silently hides corruption. A corrupted htpasswd could deny legitimate users without any log entry or error indication.
 
@@ -257,7 +257,7 @@ Full review completed in this cycle. rustls with `ServerConfig::builder().with_n
 | **Source** | [AI-INTERNAL] |
 | **File** | `src/multiuser/mod.rs:196-199` |
 | **Discovered** | 2026-05-26 |
-| **Status** | ⏳ Open |
+| **Status** | ✅ Fixed — v0.1.9, closes #29 — using /dev/urandom (16 random bytes) |
 
 **Threat model:** Attacker with admin API access enumerating user IDs.
 
@@ -284,7 +284,7 @@ Practical impact is limited: all ID-based operations (`GET /api/users/{id}`, `DE
 | **Source** | [AI-INTERNAL] |
 | **File** | `src/multiuser/mod.rs:245` |
 | **Discovered** | 2026-05-26 |
-| **Status** | ⏳ Open |
+| **Status** | ✅ Fixed — v0.1.9, closes #30 — username validated: alphanumeric + - + _ only, max 32 chars |
 
 **Threat model:** Admin creating an account with a crafted username to pre-position a path traversal.
 

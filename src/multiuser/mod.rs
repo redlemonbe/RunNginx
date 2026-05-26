@@ -194,8 +194,13 @@ fn current_day() -> u64 {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn generate_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    format!("{:x}", SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0))
+    // Use 16 random bytes (/dev/urandom) — same approach as generate_api_key()
+    let mut bytes = [0u8; 16];
+    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+        use std::io::Read;
+        let _ = f.read_exact(&mut bytes);
+    }
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
 fn generate_api_key() -> String {
@@ -241,6 +246,10 @@ pub fn handle_user_api(
                 .unwrap_or_default();
             if username.is_empty() {
                 return Some(json_err(400, "username required"));
+            }
+            // Validate username: alphanumeric + hyphen + underscore only (no path traversal)
+            if !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') || username.len() > 32 {
+                return Some(json_err(400, "username: only a-z A-Z 0-9 - _ allowed, max 32 chars"));
             }
             let home = PathBuf::from(format!("/home/{}", username));
             match registry.create_user(&username, domains, home) {

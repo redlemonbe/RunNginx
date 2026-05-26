@@ -42,7 +42,7 @@ fn verify_password(password: &str, hash: &str) -> bool {
         } else {
             hash.to_owned()
         };
-        bcrypt::verify(password, &normalized).unwrap_or(false)
+        bcrypt::verify(password, &normalized).unwrap_or_else(|e| { tracing::warn!("bcrypt verify error: {e}"); false })
     } else if hash.starts_with("{SHA}") || hash.starts_with("$apr1$") || hash.starts_with("$1$") {
         false  // MD5/SHA1 deprecated — denied
     } else {
