@@ -32,7 +32,8 @@ pub struct HandlerContext {
     pub logger:  Arc<Logger>,
     pub stats:   Arc<Stats>,
     pub api_ctx: Arc<ApiContext>,
-    pub zones:   Arc<crate::limit_req::ZoneRegistry>,
+    pub zones:          Arc<crate::limit_req::ZoneRegistry>,
+    pub challenge_store: Arc<crate::acme::ChallengeStore>,
 }
 
 pub async fn handle(
@@ -110,6 +111,22 @@ async fn dispatch(
     } else {
         &[]
     };
+
+    // Serve ACME HTTP-01 challenge tokens.
+    if let Some(stripped) = path.strip_prefix("/.well-known/acme-challenge/") {
+        if let Some(key_auth) = ctx.challenge_store.get_key_auth(stripped) {
+            let body = key_auth.into_bytes();
+            let hdrs = [
+                ("Content-Type".to_owned(), "application/octet-stream".to_owned()),
+                ("Content-Length".to_owned(), body.len().to_string()),
+            ];
+            return HandlerResult {
+                bytes: format_response(200, &hdrs, false, &body),
+                keep_alive: false,
+                status: 200,
+            };
+        }
+    }
 
     // Check if this is an API request before routing to server blocks.
     if let Some(api_bytes) = api::handle_api(&path, &method, &headers, peer.ip(), &ctx.api_ctx) {

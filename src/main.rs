@@ -14,6 +14,7 @@ mod router;
 mod server;
 mod simd;
 mod fastcgi;
+mod acme;
 mod limit_req;
 mod stats;
 
@@ -80,12 +81,15 @@ async fn main() -> Result<()> {
         zones.register(&z.name, z.rate_rps);
     }
 
+    let challenge_store = acme::ChallengeStore::new();
+
     let handler_ctx = Arc::new(server::handler::HandlerContext {
-        http:    Arc::clone(&http),
-        logger:  Arc::clone(&logger),
-        stats:   Arc::clone(&api_ctx.stats),
-        api_ctx: Arc::clone(&api_ctx),
-        zones:   Arc::clone(&zones),
+        http:            Arc::clone(&http),
+        logger:          Arc::clone(&logger),
+        stats:           Arc::clone(&api_ctx.stats),
+        api_ctx:         Arc::clone(&api_ctx),
+        zones:           Arc::clone(&zones),
+        challenge_store: Arc::clone(&challenge_store),
     });
 
     let mut handles = Vec::new();
