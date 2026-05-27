@@ -1,6 +1,6 @@
 [package]
 name        = "runnginx"
-version = "0.5.2"
+version = "0.5.3"
 edition     = "2021"
 description = "High-performance nginx-compatible HTTP server — SIMD parsing, XDP kernel-bypass, no restart ever"
 license     = "AGPL-3.0-only"
@@ -15,7 +15,7 @@ path = "src/main.rs"
 default = ["jemalloc", "tls"]
 jemalloc    = ["tikv-jemallocator"]
 tls         = ["rustls", "rustls-pemfile", "tokio-rustls", "rcgen", "dep:h2", "dep:http"]
-io_uring    = ["dep:io-uring", "dep:libc"]
+io_uring    = ["dep:io-uring"]
 acme        = ["tls", "instant-acme"]
 xdp         = []
 brotli      = ["dep:brotli"]
@@ -37,7 +37,7 @@ rcgen        = { version = "0.13", optional = true, default-features = false, fe
 h2           = { version = "0.4", optional = true }
 http         = { version = "1",   optional = true }
 io-uring     = { version = "0.7", optional = true }
-libc         = { version = "0.2", optional = true }
+libc         = "0.2"
 
 # ACME / Let's Encrypt
 instant-acme = { version = "0.7", optional = true, default-features = false, features = ["hyper-rustls", "ring"] }

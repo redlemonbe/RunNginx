@@ -149,6 +149,7 @@ fn parse_root(tokens: &[Token], pos: &mut usize, config_path: &Path, depth: usiz
         firewall_backend: None,
         firewall_tag:     "runnginx".to_owned(),
         icmp_protection:  true,
+        numa_pin: false,
         scan_detection:   true,
         scan_window_secs:     60,
         scan_req_threshold:   100,
@@ -221,6 +222,12 @@ fn parse_root(tokens: &[Token], pos: &mut usize, config_path: &Path, depth: usiz
                 let pattern = expect_word(tokens, pos)?;
                 expect_semi(tokens, pos)?;
                 handle_include(&pattern, config_path, depth, &mut cfg)?;
+            }
+            Some("numa_pin") | Some("numa-pin") => {
+                *pos += 1;
+                let val = expect_word(tokens, pos)?;
+                expect_semi(tokens, pos)?;
+                cfg.numa_pin = val.trim_matches('"') != "no" && val.trim_matches('"') != "off";
             }
             Some("icmp_protection") | Some("icmp-protection") => {
                 *pos += 1;

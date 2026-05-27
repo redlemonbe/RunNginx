@@ -17,6 +17,8 @@ pub struct Config {
     pub firewall_backend: Option<String>,
     pub firewall_tag:     String,
     pub icmp_protection:  bool,
+    /// #27: pin tokio workers to physical CPU cores (no SMT siblings).
+    pub numa_pin: bool,
     pub scan_detection:   bool,
     pub scan_window_secs:     u64,
     pub scan_req_threshold:   u64,

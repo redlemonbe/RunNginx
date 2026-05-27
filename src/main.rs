@@ -30,6 +30,7 @@ mod ioring;
 mod icmp_guard;
 mod scan_detector;
 mod xdp;
+mod numa_pin;
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
@@ -48,9 +49,33 @@ struct Cli {
     test: bool,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let cli = Cli::parse();
+    // Parse config early to determine worker count and NUMA pin before runtime starts.
+    // We do a lightweight pre-parse just for worker_processes / numa_pin.
+    let pre_cfg = config::load(&cli.config).ok();
+    let worker_count = pre_cfg.as_ref().map(|c| match c.worker_processes {
+        config::types::WorkerCount::Fixed(n) => n,
+        config::types::WorkerCount::Auto => numa_pin::physical_core_ids().len().max(1),
+    }).unwrap_or_else(|| numa_pin::physical_core_ids().len().max(1));
+    let numa_enabled = pre_cfg.as_ref().map(|c| c.numa_pin).unwrap_or(false);
+    let pin_cores = if numa_enabled {
+        let cores = numa_pin::physical_core_ids();
+        if !cores.is_empty() {
+            tracing::info!("NUMA pinning: {} physical cores detected", cores.len());
+        }
+        cores
+    } else { vec![] };
+    let rr = std::sync::Arc::new(numa_pin::CpuRoundRobin::new(pin_cores));
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(worker_count)
+        .on_thread_start(move || rr.pin_next())
+        .enable_all()
+        .build()?;
+    rt.block_on(async_main(cli))
+}
+
+async fn async_main(cli: Cli) -> Result<()> {
 
     // Install rustls ring crypto provider (must be done before any TLS operations).
     #[cfg(feature = "tls")]
